@@ -6,7 +6,10 @@
 
 #include <pcl/io/ply_io.h> // For loading PLY files
 #include <pcl/point_types.h> // For point cloud types
+
+#if defined(ROS_VERSION) && ROS_VERSION == 2
 #include <pcl_conversions/pcl_conversions.h>
+#endif
 
 #include <pcl/common/common.h>
 #include <pcl/search/kdtree.h>
