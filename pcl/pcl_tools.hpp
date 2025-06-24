@@ -189,6 +189,10 @@ void saveToCSV(
     const std::vector<float>& centerDists
 );
 
+bool checkInboundPoints(const pcl::PointXYZRGB min_pt, const pcl::PointXYZRGB max_pt, float& x, float& y);
+
+void view(const std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> clouds);
+
 } // namespace pcl_tools
 
 #endif // PCL_TOOLS_HPP

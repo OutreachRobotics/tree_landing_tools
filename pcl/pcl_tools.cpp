@@ -2,7 +2,8 @@
 
 namespace pcl_tools {
 
-bool savePly(const std::string& _filePath, const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _cloud) {
+bool savePly(const std::string& _filePath, const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _cloud)
+{
     if (!_cloud || _cloud->empty()) {
         std::cout << "Error: Point cloud is empty or invalid." << std::endl;
         return false;
@@ -20,7 +21,8 @@ bool savePly(const std::string& _filePath, const pcl::PointCloud<pcl::PointXYZRG
     return true;
 }
 
-pcl::PointCloud<pcl::PointXYZRGB>::Ptr loadPly(const std::string& _filePath){
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr loadPly(const std::string& _filePath)
+{
     // Create a point cloud object for XYZRGB points
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
 
@@ -64,7 +66,8 @@ void extractPoints(
     extract.filter(_outputCloud);
 }
 
-pcl::PointIndices removeNaNFromNormalCloud(pcl::PointCloud<pcl::PointNormal>::Ptr _normalsCloud){
+pcl::PointIndices removeNaNFromNormalCloud(pcl::PointCloud<pcl::PointNormal>::Ptr _normalsCloud)
+{
     pcl::PointCloud<pcl::PointNormal> tempCloud;
     tempCloud.points.reserve(_normalsCloud->points.size());
 
@@ -92,32 +95,32 @@ pcl::PointIndices removeNaNFromNormalCloud(pcl::PointCloud<pcl::PointNormal>::Pt
 
 void removeInvalidPoints(const pcl::PointCloud<pcl::PointXYZRGB>& _input,
                             pcl::PointCloud<pcl::PointXYZRGB>& _output)
-    {
-        pcl::PointCloud<pcl::PointXYZRGB>::Ptr temp(new pcl::PointCloud<pcl::PointXYZRGB>);
-        pcl::copyPointCloud(_input, *temp);
+{
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr temp(new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::copyPointCloud(_input, *temp);
 
-        pcl::PointCloud<pcl::PointXYZRGB> output;
+    pcl::PointCloud<pcl::PointXYZRGB> output;
 
-        output.reserve(temp->size());
-        for (size_t i = 0; i < temp->size(); ++i) {
-            const auto& p = temp->points[i];
-            if (pcl::isFinite(p)) {  // Checks both NaN AND Inf
-                output.emplace_back(p);
-            }
+    output.reserve(temp->size());
+    for (size_t i = 0; i < temp->size(); ++i) {
+        const auto& p = temp->points[i];
+        if (pcl::isFinite(p)) {  // Checks both NaN AND Inf
+            output.emplace_back(p);
         }
-        output.width = output.size();
-        output.height = 1;
-        output.is_dense = false;
-        
-        pcl::copyPointCloud(output, _output);
     }
+    output.width = output.size();
+    output.height = 1;
+    output.is_dense = false;
+    
+    pcl::copyPointCloud(output, _output);
+}
 
 pcl::PointIndices computeNormalsPC(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
     pcl::PointCloud<pcl::PointNormal>::Ptr _normalsCloud,
     const pcl::PointXYZRGB& _viewPoint,
-    const int _searchNeighbors
-){
+    const int _searchNeighbors)
+{
     pcl::search::KdTree<pcl::PointXYZRGB>::Ptr kdTree(new pcl::search::KdTree<pcl::PointXYZRGB>);
     kdTree->setInputCloud(_pointCloud);
 
@@ -136,8 +139,8 @@ pcl::PointIndices computeNormalsPC(
 
 pcl::PointCloud<pcl::PointNormal>::Ptr extractNormalsPC(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
-    const pcl::PointXYZRGB& _centroid
-){
+    const pcl::PointXYZRGB& _centroid)
+{
     pcl::PointCloud<pcl::PointNormal>::Ptr normalsCloud(new pcl::PointCloud<pcl::PointNormal>);
     computeNormalsPC(_pointCloud, normalsCloud, _centroid, N_NEIGHBORS_SEARCH);
     return normalsCloud;
@@ -146,8 +149,8 @@ pcl::PointCloud<pcl::PointNormal>::Ptr extractNormalsPC(
 float findExtremeValue(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
     const std::string& _targetField,
-    const bool _findMax
-){
+    const bool _findMax)
+{
     if (!_pointCloud || _pointCloud->empty()) {
         return std::numeric_limits<float>::quiet_NaN();
     }
@@ -183,8 +186,8 @@ float findExtremeValue(
 
 pcl_tools::BoundingBox getBB(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
-    const std::string& _depthAxis
-) {
+    const std::string& _depthAxis)
+{
     pcl::PointXYZRGB minPt, maxPt;
     pcl::getMinMax3D(*_pointCloud, minPt, maxPt);
   
@@ -216,7 +219,8 @@ pcl_tools::BoundingBox getBB(
     return boundingBox;
 }
 
-pcl::PointXYZRGB getHighestPoint(pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud){
+pcl::PointXYZRGB getHighestPoint(pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud)
+{
     // Initialize the highest point with the first point in the cloud
     pcl::PointXYZRGB highestPoint = _pointCloud->points[0];
 
@@ -308,8 +312,8 @@ pcl::PointIndices concatenateClusters(
 std::vector<pcl::PointIndices> extractClusters(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
     float _threshold,
-    int _minPoints
-){
+    int _minPoints)
+{
     std::vector<pcl::PointIndices> cluster_indices;
     
     // Create KD-tree for searching
@@ -336,8 +340,8 @@ std::vector<pcl::PointIndices> extractClusters(
 pcl::PointIndices extractBiggestCluster(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
     const float _threshold,
-    const int _minPoints
-){
+    const int _minPoints)
+{
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr tempPointCloud(new pcl::PointCloud<pcl::PointXYZRGB>(*_pointCloud));
 
     // Cluster extraction
@@ -410,8 +414,8 @@ void removeNoise(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
     const int _nNeighbors,
     const float _stdDev,
-    const bool _isNegative
-){
+    const bool _isNegative)
+{
     // const float densityFactor = _pointCloud->size() / (_pointCloud->width * _pointCloud->height);
     // const int nNeighbors = std::clamp(static_cast<int>(30 * densityFactor), 10, 50);
     // const float stdDev = 1.0 + (0.5 * (1.0 - densityFactor)); // 1.0-1.5σ
@@ -428,8 +432,8 @@ void thresholdPC(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
     const std::string& _filterFieldName,
     const float _thresholdMin,
-    const float _thresholdMax
-){
+    const float _thresholdMax)
+{
     pcl::PassThrough<pcl::PointXYZRGB> pass;
     pass.setInputCloud(_pointCloud);
     pass.setFilterFieldName(_filterFieldName);
@@ -437,7 +441,8 @@ void thresholdPC(
     pass.filter(*_pointCloud);
 }
 
-float computeDensity(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud, float _radius) {
+float computeDensity(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud, float _radius)
+{
     // Compute the volume of the sphere
     float volume = (4.0f / 3.0f) * M_PI * std::pow(_radius, 3);
 
@@ -450,8 +455,8 @@ float computeDensity(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud, float 
 
 int projectPoint(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
-    pcl::PointXYZRGB& _point
-){
+    pcl::PointXYZRGB& _point)
+{
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_copy(new pcl::PointCloud<pcl::PointXYZRGB>(*_cloud));
     for (auto& point : cloud_copy->points) {
         point.z = 0;
@@ -484,8 +489,8 @@ int projectPoint(
 pcl::PrincipalCurvatures computeCurvature(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
     const pcl::PointXYZRGB& _point,
-    const float _radius
-){
+    const float _radius)
+{
     // Step 1: Create a copy of the input cloud and add the point
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_copy(new pcl::PointCloud<pcl::PointXYZRGB>(*_cloud));
     cloud_copy->push_back(_point);
@@ -534,7 +539,8 @@ pcl::PrincipalCurvatures computeCurvature(
     }
 }
 
-Eigen::Vector4f computePlane(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud){
+Eigen::Vector4f computePlane(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud)
+{
     // Compute the centroid of the point cloud
     Eigen::Vector4f centroid;
     pcl::compute3DCentroid(*_cloud, centroid);
@@ -570,7 +576,8 @@ Eigen::Vector4f computePlane(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud
     return coefficients;
 }
 
-float computePlaneAngle(const Eigen::Vector4f& _coefficients){
+float computePlaneAngle(const Eigen::Vector4f& _coefficients)
+{
     // Extract the normal vector (nx, ny, nz)
     Eigen::Vector3f normal(_coefficients[0], _coefficients[1], _coefficients[2]);
 
@@ -600,7 +607,8 @@ float computePlaneAngle(const Eigen::Vector4f& _coefficients){
     return slope;
 }
 
-float pointToPlaneDistance(const pcl::PointXYZRGB& _point, const Eigen::Vector4f& _coefficients) {
+float pointToPlaneDistance(const pcl::PointXYZRGB& _point, const Eigen::Vector4f& _coefficients)
+{
     float a = _coefficients[0];
     float b = _coefficients[1];
     float c = _coefficients[2];
@@ -611,7 +619,8 @@ float pointToPlaneDistance(const pcl::PointXYZRGB& _point, const Eigen::Vector4f
     return distance;
 }
 
-float computeStandardDeviation(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud, const Eigen::Vector4f& coefficients) {
+float computeStandardDeviation(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud, const Eigen::Vector4f& coefficients)
+{
     std::vector<float> distances;
     for (const auto& point : _cloud->points) {
         float distance = pointToPlaneDistance(point, coefficients);
@@ -636,8 +645,8 @@ float computeStandardDeviation(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _clo
 
 float computePointsDist2D(
     const pcl::PointXYZRGB& _point1,
-    const pcl::PointXYZRGB& _point2
-){
+    const pcl::PointXYZRGB& _point2)
+{
     float dx = _point1.x - _point2.x;
     float dy = _point1.y - _point2.y;
     return std::sqrt(dx * dx + dy * dy);
@@ -645,8 +654,8 @@ float computePointsDist2D(
 
 float computePointsDist3D(
     const pcl::PointXYZRGB& _point1,
-    const pcl::PointXYZRGB& _point2
-){
+    const pcl::PointXYZRGB& _point2)
+{
     float dx = _point1.x - _point2.x;
     float dy = _point1.y - _point2.y;
     float dz = _point1.z - _point2.z;
@@ -656,8 +665,8 @@ float computePointsDist3D(
 std::vector<float> computeDistToCenters(
     const pcl::PointXYZRGB& _landingPoint,
     const pcl::PointXYZRGB& _dfCenterPoint,
-    const pcl::PointXYZRGB& _pcCenterPoint
-) {
+    const pcl::PointXYZRGB& _pcCenterPoint)
+{
     std::vector<float> output(4);
     output[0] = computePointsDist2D(_landingPoint, _dfCenterPoint);
     output[1] = computePointsDist2D(_landingPoint, _pcCenterPoint);
@@ -678,8 +687,8 @@ void saveToCSV(
     const float _density,
     const float _slope,
     const float _stdDev,
-    const std::vector<float>& _centerDists
-) {
+    const std::vector<float>& _centerDists)
+{
     // Open the file for writing
     std::ofstream file;
     file.open(_filename);
@@ -707,7 +716,8 @@ void saveToCSV(
     std::cout << "Data saved to " << _filename << std::endl;
 }
 
-void printPoint(const pcl::PointXYZRGB& _point){
+void printPoint(const pcl::PointXYZRGB& _point)
+{
     std::cout << "Point: ("
     << _point.x << ", "
     << _point.y << ", "
@@ -716,8 +726,8 @@ void printPoint(const pcl::PointXYZRGB& _point){
 
 void colorSegmentedPoints(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr _coloredCloud,
-    const pcl::RGB& _color
-){
+    const pcl::RGB& _color)
+{
     for (auto& point : _coloredCloud->points)
     {
         point.r = _color.r;
@@ -729,8 +739,8 @@ void colorSegmentedPoints(
 void colorSegmentedPoints(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr _coloredCloud,
     const pcl::PointIndices& inliers,
-    const pcl::RGB& _color
-){
+    const pcl::RGB& _color)
+{
     // Assign the same color to all points in the segmented region
     for (std::size_t i = 0; i < inliers.indices.size(); ++i)
     {
@@ -749,6 +759,56 @@ void colorSegmentedPoints(
             if(_coloredCloud->points[idx].b == 0){_coloredCloud->points[idx].b = _color.b;}
         }
     }
+}
+
+bool checkInboundPoints(const pcl::PointXYZRGB _min_pt, const pcl::PointXYZRGB _max_pt, float& _x, float& _y)
+{
+    bool isPointInBound = true;
+    // Bounding box dimensions
+    float width = _max_pt.x - _min_pt.x;
+    float height = _max_pt.y - _min_pt.y;
+    float depth = _max_pt.z - _min_pt.z;
+    float c_x = width / 2.0 + _min_pt.x;
+    float c_y = height / 2.0 + _min_pt.y;
+
+    // std::cout << "\n" << "AABB Dimensions: "
+    //         << width << " (W) x "
+    //         << height << " (H) x "
+    //         << depth << " (D)\n\n";
+
+    if(_x < _min_pt.x || _x > _max_pt.x){
+        std::cout << "\n\nWARNING: Target point out of bound: " << _min_pt.x << " < " << _x << " < " << _max_pt.x << "\n\n";
+        isPointInBound = false;
+    }
+    if(_y < _min_pt.y || _y > _max_pt.y){
+        std::cout << "\n\nWARNING: Target point out of bound: " << _min_pt.y << " < " << _y << " < " << _max_pt.y << "\n\n";
+        isPointInBound = false;
+    }
+
+    return isPointInBound;
+}
+
+void addCloud2View(pcl::visualization::PCLVisualizer::Ptr _viewer, pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud, const std::string& _name)
+{
+    pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGB> rgb(_cloud);
+    _viewer->addPointCloud<pcl::PointXYZRGB> (_cloud, rgb, _name);
+    _viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, _name);
+}
+
+void view(const std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> _clouds)
+{
+    pcl::visualization::PCLVisualizer::Ptr viewer(new pcl::visualization::PCLVisualizer ("3D Viewer"));
+    viewer->setBackgroundColor(0, 0, 0);
+    int i = 0;
+    for (pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud : _clouds) {
+        addCloud2View(viewer, cloud, "cloud" + std::to_string(i));
+        ++i;
+    }
+    viewer->addCoordinateSystem(1.0);
+    viewer->initCameraParameters();
+    // https://github.com/PointCloudLibrary/pcl/issues/5237#issuecomment-1114255056
+    // spin() instead of spinOnce() avoids crash
+    viewer->spin();
 }
 
 }
