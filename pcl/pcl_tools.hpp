@@ -3,9 +3,7 @@
 
 #include <iostream>
 #include <fstream>
-
-#include <pcl/io/ply_io.h> // For loading PLY files
-#include <pcl/point_types.h> // For point cloud types
+#include <unordered_set>
 
 #if defined(ROS_VERSION) && ROS_VERSION == 2
 #include <pcl_conversions/pcl_conversions.h>
@@ -13,17 +11,19 @@
 
 #include <pcl/common/centroid.h>
 #include <pcl/common/common.h>
-#include <pcl/search/kdtree.h>
-#include <pcl/features/normal_3d.h>
-#include <pcl/filters/extract_indices.h>
-#include <pcl/filters/voxel_grid.h>
-#include <pcl/segmentation/extract_clusters.h>
-#include <pcl/filters/statistical_outlier_removal.h>
-#include <pcl/filters/passthrough.h>
-#include <pcl/surface/mls.h>
-#include <pcl/common/centroid.h>
 #include <pcl/common/pca.h>
+#include <pcl/features/normal_3d.h>
 #include <pcl/features/principal_curvatures.h>
+#include <pcl/filters/extract_indices.h>
+#include <pcl/filters/passthrough.h>
+#include <pcl/filters/statistical_outlier_removal.h>
+#include <pcl/filters/voxel_grid.h>
+#include <pcl/io/ply_io.h>
+#include <pcl/point_types.h>
+#include <pcl/search/kdtree.h>
+#include <pcl/segmentation/extract_clusters.h>
+#include <pcl/surface/mls.h>
+#include <pcl/visualization/pcl_visualizer.h>
 
 namespace pcl_tools {
 
@@ -94,9 +94,9 @@ void downSamplePC(
 );
 
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractNeighborPC(
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloud,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloud,
     const pcl::PointXYZRGB& center,
-    float radius
+    const float radius
 );
 
 std::vector<pcl::PointIndices> extractClusters(

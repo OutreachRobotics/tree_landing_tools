@@ -266,7 +266,7 @@ void downSamplePC(
 
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractNeighborPC(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
-    const pcl::PointXYZRGB _center,
+    const pcl::PointXYZRGB& _center,
     const float _radius)
 {
     pcl::search::KdTree<pcl::PointXYZRGB>::Ptr kdtree(new pcl::search::KdTree<pcl::PointXYZRGB>);
