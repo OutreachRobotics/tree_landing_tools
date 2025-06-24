@@ -11,6 +11,7 @@
 #include <pcl_conversions/pcl_conversions.h>
 #endif
 
+#include <pcl/common/centroid.h>
 #include <pcl/common/common.h>
 #include <pcl/search/kdtree.h>
 #include <pcl/features/normal_3d.h>
