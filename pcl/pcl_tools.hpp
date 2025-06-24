@@ -36,13 +36,11 @@ struct BoundingBox {
     Eigen::Vector3f centroid;
 };
 
+// Point cloud loading
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr loadPly(const std::string& filePath);
 
 // Point cloud saving
 bool savePly(const std::string& filePath, const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& cloud);
-
-// Point cloud loading
-pcl::PointCloud<pcl::PointXYZRGB>::Ptr loadPly(const std::string& filePath);
 
 // Point cloud processing
 template <typename PointT>
