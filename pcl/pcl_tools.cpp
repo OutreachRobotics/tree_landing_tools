@@ -2,25 +2,6 @@
 
 namespace pcl_tools {
 
-bool savePly(const std::string& _filePath, const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _cloud)
-{
-    if (!_cloud || _cloud->empty()) {
-        std::cout << "Error: Point cloud is empty or invalid." << std::endl;
-        return false;
-    }
-
-    std::cout << "Saving " << _cloud->points.size() << " points to " << _filePath << std::endl;
-
-    // Save the point cloud to a .ply file in ASCII format
-    if (pcl::io::savePLYFileASCII(_filePath, *_cloud) == -1) {
-        std::cout << "Error: Could not save .ply file: " << _filePath << std::endl;
-        return false;
-    }
-
-    std::cout << "Successfully saved point cloud to " << _filePath << std::endl;
-    return true;
-}
-
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr loadPly(const std::string& _filePath)
 {
     // Create a point cloud object for XYZRGB points
@@ -48,6 +29,25 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr loadPly(const std::string& _filePath)
     }
 
     return cloud;
+}
+
+bool savePly(const std::string& _filePath, const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _cloud)
+{
+    if (!_cloud || _cloud->empty()) {
+        std::cout << "Error: Point cloud is empty or invalid." << std::endl;
+        return false;
+    }
+
+    std::cout << "Saving " << _cloud->points.size() << " points to " << _filePath << std::endl;
+
+    // Save the point cloud to a .ply file in ASCII format
+    if (pcl::io::savePLYFileASCII(_filePath, *_cloud) == -1) {
+        std::cout << "Error: Could not save .ply file: " << _filePath << std::endl;
+        return false;
+    }
+
+    std::cout << "Successfully saved point cloud to " << _filePath << std::endl;
+    return true;
 }
 
 template <typename PointT>
