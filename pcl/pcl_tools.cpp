@@ -139,10 +139,11 @@ pcl::PointIndices computeNormalsPC(
 
 pcl::PointCloud<pcl::PointNormal>::Ptr extractNormalsPC(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
-    const pcl::PointXYZRGB& _centroid)
+    const pcl::PointXYZRGB& _centroid,
+    const int _nNeighborsSearch)
 {
     pcl::PointCloud<pcl::PointNormal>::Ptr normalsCloud(new pcl::PointCloud<pcl::PointNormal>);
-    computeNormalsPC(_pointCloud, normalsCloud, _centroid, N_NEIGHBORS_SEARCH);
+    computeNormalsPC(_pointCloud, normalsCloud, _centroid, _nNeighborsSearch);
     return normalsCloud;
 }
 
@@ -662,21 +663,25 @@ float computePointsDist3D(
     return std::sqrt(dx * dx + dy * dy + dz * dz);
 }
 
-std::vector<float> computeDistToCenters(
+std::vector<std::pair<float, float>> computeDistToPointsOfInterest(
     const pcl::PointXYZRGB& _landingPoint,
-    const pcl::PointXYZRGB& _dfCenterPoint,
-    const pcl::PointXYZRGB& _pcCenterPoint)
+    const std::vector<pcl::PointXYZRGB>& _pointsOfInterest)
 {
-    std::vector<float> output(4);
-    output[0] = computePointsDist2D(_landingPoint, _dfCenterPoint);
-    output[1] = computePointsDist2D(_landingPoint, _pcCenterPoint);
-    output[2] = computePointsDist3D(_landingPoint, _dfCenterPoint);
-    output[3] = computePointsDist3D(_landingPoint, _pcCenterPoint);
+    std::vector<std::pair<float, float>> output;
+    output.reserve(_pointsOfInterest.size());
 
-    std::cout << "Distance to DF Center 2D: " << output[0] << std::endl;
-    std::cout << "Distance to PC Center 2D: " << output[1] << std::endl;
-    std::cout << "Distance to DF Center 3D: " << output[2] << std::endl;
-    std::cout << "Distance to PC Center 3D: " << output[3] << std::endl;
+    for (size_t i = 0; i < _pointsOfInterest.size(); ++i)
+    {
+        const pcl::PointXYZRGB pointOfInterest = _pointsOfInterest[i];
+
+        float dist2D = computePointsDist2D(_landingPoint, pointOfInterest);
+        float dist3D = computePointsDist3D(_landingPoint, pointOfInterest);
+
+        output.emplace_back(dist2D, dist3D); 
+
+        std::cout << "Distance to Point of interest #" << i << " 2D: " << output[i].first << std::endl;
+        std::cout << "Distance to Point of interest #" << i << " 3D: " << output[i].second << std::endl;
+    }
 
     return output;
 }
@@ -692,12 +697,13 @@ void saveToCSV(const std::string& _filename)
         std::numeric_limits<float>::quiet_NaN(),
         std::numeric_limits<float>::quiet_NaN(),
         std::numeric_limits<float>::quiet_NaN(),
-        std::vector<float>({
-            std::numeric_limits<float>::quiet_NaN(),
-            std::numeric_limits<float>::quiet_NaN(),
-            std::numeric_limits<float>::quiet_NaN(),
-            std::numeric_limits<float>::quiet_NaN()
-    })); 
+        std::vector<std::pair<float, float>>({
+            {std::numeric_limits<float>::quiet_NaN(),
+            std::numeric_limits<float>::quiet_NaN()},
+            {std::numeric_limits<float>::quiet_NaN(),
+            std::numeric_limits<float>::quiet_NaN()}
+        })
+    );
 }
 
 void saveToCSV(
@@ -706,7 +712,7 @@ void saveToCSV(
     const float _density,
     const float _slope,
     const float _stdDev,
-    const std::vector<float>& _centerDists)
+    const std::vector<std::pair<float, float>>& _distsOfInterest)
 {
     // Open the file for writing
     std::ofstream file;
@@ -720,14 +726,20 @@ void saveToCSV(
     // Write headers
     file << "Curvature_PC1,Curvature_PC2,Mean_Curvature,Gaussian_Curvature,"
          << "Density,Slope,Standard_Deviation,"
-         << "Distance_DF_Center_2D,Distance_PC_Center_2D,Distance_DF_Center_3D,Distance_PC_Center_3D\n";
+         << "Distance_RGB_Center_2D,Distance_PC_Center_2D,Distance_RGB_Center_3D,Distance_PC_Center_3D\n";
 
     // Write data
     file << _curvatures.pc1 << "," << _curvatures.pc2 << "," << (_curvatures.pc1 + _curvatures.pc2) / 2.0f << "," << _curvatures.pc1 * _curvatures.pc2 << ","
          << _density << ","
          << _slope << ","
-         << _stdDev << ","
-         << _centerDists[0] << "," << _centerDists[1] << "," << _centerDists[2] << "," << _centerDists[3] << "\n";
+         << _stdDev << ",";
+
+    for(auto& distOfInterest : _distsOfInterest)
+    {
+        file << distOfInterest.first << "," << distOfInterest.second;
+    }
+
+    file << "\n";
 
     // Close the file
     file.close();

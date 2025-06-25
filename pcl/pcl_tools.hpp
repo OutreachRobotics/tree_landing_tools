@@ -66,7 +66,8 @@ pcl::PointIndices computeNormalsPC(
 
 pcl::PointCloud<pcl::PointNormal>::Ptr extractNormalsPC(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloud,
-    const pcl::PointXYZRGB& centroid
+    const pcl::PointXYZRGB& centroid,
+    const int _nNeighborsSearch
 );
 
 // Point cloud analysis
@@ -160,10 +161,9 @@ float computePointsDist2D(const pcl::PointXYZRGB& point1, const pcl::PointXYZRGB
 
 float computePointsDist3D(const pcl::PointXYZRGB& point1, const pcl::PointXYZRGB& point2);
 
-std::vector<float> computeDistToCenters(
+std::vector<std::pair<float, float>> computeDistToPointsOfInterest(
     const pcl::PointXYZRGB& landingPoint,
-    const pcl::PointXYZRGB& dfCenterPoint,
-    const pcl::PointXYZRGB& pcCenterPoint
+    const std::vector<pcl::PointXYZRGB>& pointsOfInterest
 );
 
 // Visualization utilities
@@ -186,10 +186,10 @@ void saveToCSV(const std::string& _filename);
 void saveToCSV(
     const std::string& filename,
     const pcl::PrincipalCurvatures& curvatures,
-    float density,
-    float slope,
-    float stdDev,
-    const std::vector<float>& centerDists
+    const float density,
+    const float slope,
+    const float stdDev,
+    const std::vector<std::pair<float, float>>& _distsOfInterest
 );
 
 bool checkInboundPoints(const pcl::PointXYZRGB min_pt, const pcl::PointXYZRGB max_pt, float& x, float& y);
