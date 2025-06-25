@@ -15,6 +15,7 @@
 #include <pcl/features/normal_3d.h>
 #include <pcl/features/principal_curvatures.h>
 #include <pcl/filters/extract_indices.h>
+#include <pcl/filters/local_maximum.h>
 #include <pcl/filters/passthrough.h>
 #include <pcl/filters/statistical_outlier_removal.h>
 #include <pcl/filters/voxel_grid.h>
@@ -109,7 +110,7 @@ std::vector<pcl::PointIndices> extractClusters(
 pcl::PointIndices extractBiggestCluster(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloud,
     float threshold,
-    int minPoints
+    int minPoints=10
 );
 
 void removeNoise(
@@ -154,6 +155,18 @@ float pointToPlaneDistance(const pcl::PointXYZRGB& point, const Eigen::Vector4f&
 float computeStandardDeviation(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
     const Eigen::Vector4f& coefficients
+);
+
+pcl::PointIndices findLocalExtremums(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
+    const float radius,
+    const bool isMin=false
+);
+
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractLocalExtremums(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
+    const float radius,
+    const bool isMin=false
 );
 
 // Distance calculations

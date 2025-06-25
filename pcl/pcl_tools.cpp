@@ -644,6 +644,50 @@ float computeStandardDeviation(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _clo
     return std_dev;
 }
 
+pcl::PointIndices findLocalExtremums(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
+    const float _radius,
+    const bool _isMin)
+{
+    pcl::Indices indices;
+
+    pcl::PointCloud<pcl::PointXYZRGB> inputCloud;
+
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_copy(new pcl::PointCloud<pcl::PointXYZRGB>(*_cloud));
+
+    if(_isMin)
+    {
+        for(auto& point : *cloud_copy)
+        {
+            point.z = -point.z;
+        }
+    }
+
+    pcl::LocalMaximum< pcl::PointXYZRGB > lm;
+    lm.setNegative(true);
+    lm.setRadius(_radius);
+    lm.setInputCloud(cloud_copy);
+
+    lm.filter(indices);
+
+    pcl::PointIndices pointIndices;
+    pointIndices.indices = indices;
+
+    return pointIndices;
+}
+
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractLocalExtremums(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
+    const float _radius,
+    const bool _isMin)
+{
+    pcl::PointIndices idx = findLocalExtremums(_cloud, _radius, _isMin);
+
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr localExtremums(new pcl::PointCloud<pcl::PointXYZRGB>);
+    extractPoints(*_cloud, *localExtremums, idx, false);
+    return localExtremums;
+}
+
 float computePointsDist2D(
     const pcl::PointXYZRGB& _point1,
     const pcl::PointXYZRGB& _point2)
