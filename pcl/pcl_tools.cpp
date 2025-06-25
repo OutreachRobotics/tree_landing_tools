@@ -681,6 +681,25 @@ std::vector<float> computeDistToCenters(
     return output;
 }
 
+void saveToCSV(const std::string& _filename)
+{
+    saveToCSV(
+        _filename,
+        pcl::PrincipalCurvatures(
+            std::numeric_limits<float>::quiet_NaN(),
+            std::numeric_limits<float>::quiet_NaN()
+        ),
+        std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::quiet_NaN(),
+        std::vector<float>({
+            std::numeric_limits<float>::quiet_NaN(),
+            std::numeric_limits<float>::quiet_NaN(),
+            std::numeric_limits<float>::quiet_NaN(),
+            std::numeric_limits<float>::quiet_NaN()
+    })); 
+}
+
 void saveToCSV(
     const std::string& _filename,
     const pcl::PrincipalCurvatures& _curvatures,

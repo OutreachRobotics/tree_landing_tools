@@ -181,6 +181,8 @@ void colorSegmentedPoints(
 );
 
 // Data export
+void saveToCSV(const std::string& _filename);
+
 void saveToCSV(
     const std::string& filename,
     const pcl::PrincipalCurvatures& curvatures,
