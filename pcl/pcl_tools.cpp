@@ -214,8 +214,9 @@ pcl_tools::BoundingBox getBB(
         boundingBox.width = maxPt.y - minPt.y;
         boundingBox.height = maxPt.z - minPt.z;
         boundingBox.depth = maxPt.x - minPt.x;
-
     }
+
+    boundingBox.volume = boundingBox.width * boundingBox.height * boundingBox.depth;
 
     return boundingBox;
 }
@@ -738,6 +739,8 @@ void saveToCSV(const std::string& _filename)
             std::numeric_limits<float>::quiet_NaN(),
             std::numeric_limits<float>::quiet_NaN()
         ),
+        BoundingBox(),
+        std::numeric_limits<float>::quiet_NaN(),
         std::numeric_limits<float>::quiet_NaN(),
         std::numeric_limits<float>::quiet_NaN(),
         std::numeric_limits<float>::quiet_NaN(),
@@ -753,9 +756,11 @@ void saveToCSV(const std::string& _filename)
 void saveToCSV(
     const std::string& _filename,
     const pcl::PrincipalCurvatures& _curvatures,
+    const BoundingBox _clusterBB,
     const float _density,
     const float _slope,
     const float _stdDev,
+    const float _distTop,
     const std::vector<std::pair<float, float>>& _distsOfInterest)
 {
     // Open the file for writing
@@ -769,14 +774,18 @@ void saveToCSV(
 
     // Write headers
     file << "Curvature_PC1,Curvature_PC2,Mean_Curvature,Gaussian_Curvature,"
-         << "Density,Slope,Standard_Deviation,"
+         << "BB_Width,BB_Height,BB_Depth,BB_Volume"
+         << "Density,Slope,Standard_Deviation,Distance_Top"
          << "Distance_RGB_Center_2D,Distance_PC_Center_2D,Distance_RGB_Center_3D,Distance_PC_Center_3D\n";
 
     // Write data
     file << _curvatures.pc1 << "," << _curvatures.pc2 << "," << (_curvatures.pc1 + _curvatures.pc2) / 2.0f << "," << _curvatures.pc1 * _curvatures.pc2 << ","
+         << _clusterBB.width << "," << _clusterBB.height << "," << _clusterBB.depth << "," << _clusterBB.volume << ","
          << _density << ","
          << _slope << ","
-         << _stdDev << ",";
+         << _stdDev << ","
+         << _distTop << ",";
+
 
     for(auto& distOfInterest : _distsOfInterest)
     {

@@ -35,7 +35,31 @@ constexpr float DRONE_RADIUS = 1.5f;
 struct BoundingBox {
     float min_x, max_x, min_y, max_y, min_z, max_z;
     float width, height, depth;
+    float volume;
     Eigen::Vector3f centroid;
+
+    BoundingBox() {
+        const float nan_val = std::numeric_limits<float>::quiet_NaN();
+        min_x = max_x = min_y = max_y = min_z = max_z = nan_val;
+        width = height = depth = nan_val;
+        volume = nan_val;
+        centroid.fill(nan_val);
+    }
+
+    BoundingBox(const Eigen::Vector3f& min_pt, const Eigen::Vector3f& max_pt):
+        min_x(min_pt.x()),
+        max_x(max_pt.x()),
+        min_y(min_pt.y()),
+        max_y(max_pt.y()),
+        min_z(min_pt.z()),
+        max_z(max_pt.z()),
+
+        width(std::abs(max_pt.x() - min_pt.x())),
+        height(std::abs(max_pt.y() - min_pt.y())),
+        depth(std::abs(max_pt.z() - min_pt.z())),
+        centroid((min_pt + max_pt) / 2.0f),
+        volume(width * height * depth)
+    {}
 };
 
 // Point cloud loading
@@ -199,9 +223,11 @@ void saveToCSV(const std::string& _filename);
 void saveToCSV(
     const std::string& filename,
     const pcl::PrincipalCurvatures& curvatures,
+    const BoundingBox clusterBB,
     const float density,
     const float slope,
     const float stdDev,
+    const float distTop,
     const std::vector<std::pair<float, float>>& _distsOfInterest
 );
 
