@@ -12,6 +12,7 @@
 #include <pcl/common/centroid.h>
 #include <pcl/common/common.h>
 #include <pcl/common/pca.h>
+#include <pcl/features/boundary.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/features/principal_curvatures.h>
 #include <pcl/filters/extract_indices.h>
@@ -156,6 +157,30 @@ void thresholdPC(
     const float thresholdMax
 );
 
+pcl::PointIndices findBoundary(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
+    const pcl::PointCloud<pcl::PointNormal>::Ptr normalsCloud,
+    const int searchNeighbors
+);
+
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractBoundary(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
+    const pcl::PointCloud<pcl::PointNormal>::Ptr normalsCloud,
+    const int searchNeighbors
+);
+
+pcl::PointIndices findRadiusBoundary(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
+    const pcl::PointIndices boundaryIdx,
+    const float searchRadius
+);
+
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractRadiusBoundary(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
+    const pcl::PointIndices boundaryIdx,
+    const float searchRadius
+);
+
 // Geometric computations
 float computeDensity(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, float radius);
 
@@ -217,20 +242,7 @@ void colorSegmentedPoints(
     const pcl::RGB& color
 );
 
-// Data export
-void saveToCSV(const std::string& _filename);
-
-void saveToCSV(
-    const std::string& filename,
-    const pcl::PrincipalCurvatures& curvatures,
-    const BoundingBox clusterBB,
-    const float density,
-    const float slope,
-    const float stdDev,
-    const float distTop,
-    const std::vector<std::pair<float, float>>& _distsOfInterest
-);
-
+// Data viz
 bool checkInboundPoints(const pcl::PointXYZRGB min_pt, const pcl::PointXYZRGB max_pt, float& x, float& y);
 
 void view(const std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> clouds);

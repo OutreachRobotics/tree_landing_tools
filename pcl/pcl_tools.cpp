@@ -443,6 +443,100 @@ void thresholdPC(
     pass.filter(*_pointCloud);
 }
 
+pcl::PointIndices findBoundary(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
+    const pcl::PointCloud<pcl::PointNormal>::Ptr _normalsCloud,
+    const int _searchNeighbors)
+{
+    pcl::BoundaryEstimation<pcl::PointXYZRGB, pcl::PointNormal, pcl::Boundary> be;
+    pcl::PointCloud<pcl::Boundary>::Ptr boundaryCloud(new pcl::PointCloud<pcl::Boundary>);
+    pcl::search::KdTree<pcl::PointXYZRGB>::Ptr kdTree(new pcl::search::KdTree<pcl::PointXYZRGB>);
+    kdTree->setInputCloud(_cloud);
+
+    be.setInputCloud(_cloud);
+    be.setInputNormals(_normalsCloud);
+    be.setSearchMethod(kdTree);
+    be.setKSearch(_searchNeighbors); // Adjust K value as necessary
+    be.compute(*boundaryCloud);
+
+    pcl::PointIndices boundaryIdx;
+    boundaryIdx.indices.reserve(boundaryCloud->points.size());
+    for (size_t i = 0; i < boundaryCloud->points.size(); ++i)
+    {
+        uint8_t x = static_cast<int>(boundaryCloud->points[i].boundary_point);
+        if (x == 1) // Boundary point
+        {
+            boundaryIdx.indices.emplace_back(i);
+        }
+    }
+
+    return boundaryIdx;
+}
+
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractBoundary(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
+    const pcl::PointCloud<pcl::PointNormal>::Ptr _normalsCloud,
+    const int _searchNeighbors)
+{
+    pcl::PointIndices idx = findBoundary(
+        _cloud,
+        _normalsCloud,
+        _searchNeighbors
+    );
+
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr boundary(new pcl::PointCloud<pcl::PointXYZRGB>);
+    extractPoints(*_cloud, *boundary, idx, false);
+    return boundary;
+}
+
+pcl::PointIndices findRadiusBoundary(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
+    const pcl::PointIndices _boundaryIdx,
+    const float _searchRadius)
+{
+    pcl::PointIndices pointsIdxWithinRadius;
+    pointsIdxWithinRadius.indices.reserve(_cloud->size() * _boundaryIdx.indices.size());
+
+    pcl::search::KdTree<pcl::PointXYZRGB>::Ptr kdTree(new pcl::search::KdTree<pcl::PointXYZRGB>);
+    kdTree->setInputCloud(_cloud);
+
+    std::vector<int> point_idx_radius_search;
+    std::vector<float> point_radius_squared_distance;
+
+    for (const long idx : _boundaryIdx.indices)
+    {
+        if (kdTree->radiusSearch(_cloud->points[idx], _searchRadius, point_idx_radius_search, point_radius_squared_distance) > 0)
+        {
+            for (size_t j = 0; j < point_idx_radius_search.size(); ++j)
+            {
+                pointsIdxWithinRadius.indices.emplace_back(point_idx_radius_search[j]);
+            }
+        }
+    }
+
+    // Remove duplicate indices
+    std::sort(pointsIdxWithinRadius.indices.begin(), pointsIdxWithinRadius.indices.end());
+    pointsIdxWithinRadius.indices.erase(std::unique(pointsIdxWithinRadius.indices.begin(), pointsIdxWithinRadius.indices.end()));
+
+    return pointsIdxWithinRadius;
+}
+
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractRadiusBoundary(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
+    const pcl::PointIndices _boundaryIdx,
+    const float _searchRadius)
+{
+    pcl::PointIndices idx = findRadiusBoundary(
+        _cloud,
+        _boundaryIdx,
+        _searchRadius
+    );
+
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr boundaryRad(new pcl::PointCloud<pcl::PointXYZRGB>);
+    extractPoints(*_cloud, *boundaryRad, idx, false);
+    return boundaryRad;
+}
+
 float computeDensity(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud, float _radius)
 {
     // Compute the volume of the sphere
@@ -729,75 +823,6 @@ std::vector<std::pair<float, float>> computeDistToPointsOfInterest(
     }
 
     return output;
-}
-
-void saveToCSV(const std::string& _filename)
-{
-    saveToCSV(
-        _filename,
-        pcl::PrincipalCurvatures(
-            std::numeric_limits<float>::quiet_NaN(),
-            std::numeric_limits<float>::quiet_NaN()
-        ),
-        BoundingBox(),
-        std::numeric_limits<float>::quiet_NaN(),
-        std::numeric_limits<float>::quiet_NaN(),
-        std::numeric_limits<float>::quiet_NaN(),
-        std::numeric_limits<float>::quiet_NaN(),
-        std::vector<std::pair<float, float>>({
-            {std::numeric_limits<float>::quiet_NaN(),
-            std::numeric_limits<float>::quiet_NaN()},
-            {std::numeric_limits<float>::quiet_NaN(),
-            std::numeric_limits<float>::quiet_NaN()}
-        })
-    );
-}
-
-void saveToCSV(
-    const std::string& _filename,
-    const pcl::PrincipalCurvatures& _curvatures,
-    const BoundingBox _clusterBB,
-    const float _density,
-    const float _slope,
-    const float _stdDev,
-    const float _distTop,
-    const std::vector<std::pair<float, float>>& _distsOfInterest)
-{
-    // Open the file for writing
-    std::ofstream file;
-    file.open(_filename);
-
-    if (!file.is_open()) {
-        std::cout << "Error: Could not open file " << _filename << " for writing." << std::endl;
-        return;
-    }
-
-    // Write headers
-    file << "Curvature_PC1,Curvature_PC2,Mean_Curvature,Gaussian_Curvature,"
-         << "BB_Width,BB_Height,BB_Depth,BB_Volume"
-         << "Density,Slope,Standard_Deviation,Distance_Top"
-         << "Distance_RGB_Center_2D,Distance_PC_Center_2D,Distance_RGB_Center_3D,Distance_PC_Center_3D\n";
-
-    // Write data
-    file << _curvatures.pc1 << "," << _curvatures.pc2 << "," << (_curvatures.pc1 + _curvatures.pc2) / 2.0f << "," << _curvatures.pc1 * _curvatures.pc2 << ","
-         << _clusterBB.width << "," << _clusterBB.height << "," << _clusterBB.depth << "," << _clusterBB.volume << ","
-         << _density << ","
-         << _slope << ","
-         << _stdDev << ","
-         << _distTop << ",";
-
-
-    for(auto& distOfInterest : _distsOfInterest)
-    {
-        file << distOfInterest.first << "," << distOfInterest.second;
-    }
-
-    file << "\n";
-
-    // Close the file
-    file.close();
-
-    std::cout << "Data saved to " << _filename << std::endl;
 }
 
 void printPoint(const pcl::PointXYZRGB& _point)
