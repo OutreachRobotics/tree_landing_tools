@@ -484,6 +484,8 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractBoundary(
         _searchNeighbors
     );
 
+    std::cout << "idx.indices.size(): " << idx.indices.size() << "\n";
+
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr boundary(new pcl::PointCloud<pcl::PointXYZRGB>);
     extractPoints(*_cloud, *boundary, idx, false);
     return boundary;
@@ -494,8 +496,8 @@ pcl::PointIndices findRadiusBoundary(
     const pcl::PointIndices _boundaryIdx,
     const float _searchRadius)
 {
-    pcl::PointIndices pointsIdxWithinRadius;
-    pointsIdxWithinRadius.indices.reserve(_cloud->size() * _boundaryIdx.indices.size());
+    std::unordered_set<int> unique_indices;
+    unique_indices.reserve(_cloud->size());
 
     pcl::search::KdTree<pcl::PointXYZRGB>::Ptr kdTree(new pcl::search::KdTree<pcl::PointXYZRGB>);
     kdTree->setInputCloud(_cloud);
@@ -503,20 +505,20 @@ pcl::PointIndices findRadiusBoundary(
     std::vector<int> point_idx_radius_search;
     std::vector<float> point_radius_squared_distance;
 
-    for (const long idx : _boundaryIdx.indices)
+    // For each boundary point, find its neighbors.
+    for (const int idx : _boundaryIdx.indices)
     {
         if (kdTree->radiusSearch(_cloud->points[idx], _searchRadius, point_idx_radius_search, point_radius_squared_distance) > 0)
         {
-            for (size_t j = 0; j < point_idx_radius_search.size(); ++j)
-            {
-                pointsIdxWithinRadius.indices.emplace_back(point_idx_radius_search[j]);
-            }
+            // Insert all found neighbors into the set.
+            // Duplicates will be ignored automatically.
+            unique_indices.insert(point_idx_radius_search.begin(), point_idx_radius_search.end());
         }
     }
 
-    // Remove duplicate indices
-    std::sort(pointsIdxWithinRadius.indices.begin(), pointsIdxWithinRadius.indices.end());
-    pointsIdxWithinRadius.indices.erase(std::unique(pointsIdxWithinRadius.indices.begin(), pointsIdxWithinRadius.indices.end()));
+    // Create the final PointIndices object and copy the unique indices into it.
+    pcl::PointIndices pointsIdxWithinRadius;
+    pointsIdxWithinRadius.indices.assign(unique_indices.begin(), unique_indices.end());
 
     return pointsIdxWithinRadius;
 }
