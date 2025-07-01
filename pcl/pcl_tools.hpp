@@ -163,7 +163,7 @@ pcl::PointIndices findBoundary(
     const int searchNeighbors
 );
 
-pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractBoundary(
+void extractBoundary(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
     const pcl::PointCloud<pcl::PointNormal>::Ptr normalsCloud,
     const int searchNeighbors
@@ -175,10 +175,20 @@ pcl::PointIndices findRadiusBoundary(
     const float searchRadius
 );
 
-pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractRadiusBoundary(
+void extractRadiusBoundary(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
     const pcl::PointIndices boundaryIdx,
     const float searchRadius
+);
+
+pcl::PointIndices findSurface(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
+    const float leafSize
+);
+
+void extractSurface(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
+    const float leafSize
 );
 
 // Geometric computations

@@ -469,11 +469,12 @@ pcl::PointIndices findBoundary(
             boundaryIdx.indices.emplace_back(i);
         }
     }
+    boundaryIdx.indices.shrink_to_fit();
 
     return boundaryIdx;
 }
 
-pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractBoundary(
+void extractBoundary(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
     const pcl::PointCloud<pcl::PointNormal>::Ptr _normalsCloud,
     const int _searchNeighbors)
@@ -484,11 +485,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractBoundary(
         _searchNeighbors
     );
 
-    std::cout << "idx.indices.size(): " << idx.indices.size() << "\n";
-
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr boundary(new pcl::PointCloud<pcl::PointXYZRGB>);
-    extractPoints(*_cloud, *boundary, idx, false);
-    return boundary;
+    extractPoints(*_cloud, *_cloud, idx, false);
 }
 
 pcl::PointIndices findRadiusBoundary(
@@ -523,7 +520,7 @@ pcl::PointIndices findRadiusBoundary(
     return pointsIdxWithinRadius;
 }
 
-pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractRadiusBoundary(
+void extractRadiusBoundary(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
     const pcl::PointIndices _boundaryIdx,
     const float _searchRadius)
@@ -534,9 +531,59 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractRadiusBoundary(
         _searchRadius
     );
 
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr boundaryRad(new pcl::PointCloud<pcl::PointXYZRGB>);
-    extractPoints(*_cloud, *boundaryRad, idx, false);
-    return boundaryRad;
+    extractPoints(*_cloud, *_cloud, idx, false);
+}
+
+pcl::PointIndices findSurface(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
+    const float _leafSize)
+{
+    // 1. Create the map to store the highest point for each grid cell
+    // The key is the grid cell coordinate, the value is the index of the point
+    std::map<std::pair<int, int>, int> grid;
+
+    // 2. Iterate through the cloud and find the highest point in each cell
+    for (int i = 0; i < _cloud->points.size(); ++i) {
+        int grid_x = static_cast<int>(floor(_cloud->points[i].x / _leafSize));
+        int grid_y = static_cast<int>(floor(_cloud->points[i].y / _leafSize));
+        std::pair<int, int> cell = std::make_pair(grid_x, grid_y);
+
+        // Check if a point is already in this cell
+        if (grid.find(cell) == grid.end()) {
+            // No point yet, so add this one
+            grid[cell] = i;
+        } else {
+            // A point exists, check if the new one is higher
+            int idx = grid[cell];
+
+            if (_cloud->points[i].z > _cloud->points[idx].z) {
+                // New point is higher, replace the old one
+                grid[cell] = i;
+            }
+        }
+    }
+
+    pcl::PointIndices surfacePointsIdx;
+    surfacePointsIdx.indices.reserve(grid.size());
+
+    for (const auto& element : grid) {
+        surfacePointsIdx.indices.emplace_back(element.second);
+    }
+    surfacePointsIdx.indices.shrink_to_fit();
+
+    return surfacePointsIdx;
+}
+
+void extractSurface(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
+    const float _leafSize)
+{
+    pcl::PointIndices idx = findSurface(
+        _cloud,
+        _leafSize
+    );
+
+    extractPoints(*_cloud, *_cloud, idx, false);
 }
 
 float computeDensity(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud, float _radius)
