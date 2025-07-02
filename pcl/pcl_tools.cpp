@@ -115,11 +115,62 @@ void removeInvalidPoints(const pcl::PointCloud<pcl::PointXYZRGB>& _input,
     pcl::copyPointCloud(output, _output);
 }
 
+pcl::PointCloud<pcl::Normal>::Ptr computeNormals(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
+    const int _searchNeighbors)
+{
+    pcl::search::KdTree<pcl::PointXYZRGB>::Ptr kdtree(new pcl::search::KdTree<pcl::PointXYZRGB>);
+    kdtree->setInputCloud(_cloud);
+
+    pcl::PointCloud <pcl::Normal>::Ptr normals (new pcl::PointCloud <pcl::Normal>);
+    pcl::NormalEstimation<pcl::PointXYZRGB, pcl::Normal> ne;
+    ne.setSearchMethod(kdtree);
+    ne.setInputCloud(_cloud);
+    ne.setViewPoint(0, 0, HIGH_VIEW);
+    ne.setKSearch(_searchNeighbors);
+    ne.compute(*normals);
+
+    return normals;
+}
+
+pcl::PointCloud<pcl::Normal>::Ptr computeNormalsRad(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
+    const float _searchRadius)
+{
+    pcl::search::KdTree<pcl::PointXYZRGB>::Ptr kdtree(new pcl::search::KdTree<pcl::PointXYZRGB>);
+    kdtree->setInputCloud(_cloud);
+
+    pcl::PointCloud <pcl::Normal>::Ptr normals (new pcl::PointCloud <pcl::Normal>);
+    pcl::NormalEstimation<pcl::PointXYZRGB, pcl::Normal> ne;
+    ne.setSearchMethod(kdtree);
+    ne.setInputCloud(_cloud);
+    ne.setViewPoint(0, 0, HIGH_VIEW);
+    ne.setRadiusSearch(_searchRadius);
+    ne.compute(*normals);
+
+    return normals;
+}
+
 pcl::PointIndices computeNormalsPC(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
     pcl::PointCloud<pcl::PointNormal>::Ptr _normalsCloud,
-    const pcl::PointXYZRGB& _viewPoint,
     const int _searchNeighbors)
+{
+    pcl::PointXYZRGB viewPoint;
+    viewPoint.z = HIGH_VIEW;
+    return computeNormalsPC(
+        _pointCloud,
+        _normalsCloud,
+        _searchNeighbors,
+        viewPoint
+    );
+}
+
+pcl::PointIndices computeNormalsPC(
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
+    pcl::PointCloud<pcl::PointNormal>::Ptr _normalsCloud,
+    const int _searchNeighbors,
+    const pcl::PointXYZRGB& _viewPoint)
 {
     pcl::search::KdTree<pcl::PointXYZRGB>::Ptr kdTree(new pcl::search::KdTree<pcl::PointXYZRGB>);
     kdTree->setInputCloud(_pointCloud);
@@ -137,13 +188,78 @@ pcl::PointIndices computeNormalsPC(
     return removedIdx;
 }
 
+pcl::PointIndices computeNormalsRadPC(
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
+    pcl::PointCloud<pcl::PointNormal>::Ptr _normalsCloud,
+    const float _searchRadius)
+{
+    pcl::PointXYZRGB viewPoint;
+    viewPoint.z = HIGH_VIEW;
+    return computeNormalsRadPC(
+        _pointCloud,
+        _normalsCloud,
+        _searchRadius,
+        viewPoint
+    );
+}
+
+pcl::PointIndices computeNormalsRadPC(
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
+    pcl::PointCloud<pcl::PointNormal>::Ptr _normalsCloud,
+    const float _searchRadius,
+    const pcl::PointXYZRGB& _viewPoint)
+{
+    pcl::search::KdTree<pcl::PointXYZRGB>::Ptr kdTree(new pcl::search::KdTree<pcl::PointXYZRGB>);
+    kdTree->setInputCloud(_pointCloud);
+
+    pcl::NormalEstimation<pcl::PointXYZRGB, pcl::PointNormal> ne;
+    ne.setInputCloud(_pointCloud);
+    ne.setViewPoint(_viewPoint.x, _viewPoint.y, _viewPoint.z);
+    ne.setSearchMethod(kdTree);
+    ne.setRadiusSearch(_searchRadius);
+    ne.compute(*_normalsCloud);
+
+    pcl::PointIndices removedIdx = removeNaNFromNormalCloud(_normalsCloud);
+    extractPoints(*_pointCloud, *_pointCloud, removedIdx, true);
+
+    return removedIdx;
+}
+
 pcl::PointCloud<pcl::PointNormal>::Ptr extractNormalsPC(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
-    const pcl::PointXYZRGB& _centroid,
     const int _nNeighborsSearch)
 {
     pcl::PointCloud<pcl::PointNormal>::Ptr normalsCloud(new pcl::PointCloud<pcl::PointNormal>);
-    computeNormalsPC(_pointCloud, normalsCloud, _centroid, _nNeighborsSearch);
+    computeNormalsPC(_pointCloud, normalsCloud, _nNeighborsSearch);
+    return normalsCloud;
+}
+
+pcl::PointCloud<pcl::PointNormal>::Ptr extractNormalsPC(
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
+    const int _nNeighborsSearch,
+    const pcl::PointXYZRGB& _centroid)
+{
+    pcl::PointCloud<pcl::PointNormal>::Ptr normalsCloud(new pcl::PointCloud<pcl::PointNormal>);
+    computeNormalsPC(_pointCloud, normalsCloud, _nNeighborsSearch, _centroid);
+    return normalsCloud;
+}
+
+pcl::PointCloud<pcl::PointNormal>::Ptr extractNormalsRadPC(
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
+    const float _radiusSearch)
+{
+    pcl::PointCloud<pcl::PointNormal>::Ptr normalsCloud(new pcl::PointCloud<pcl::PointNormal>);
+    computeNormalsRadPC(_pointCloud, normalsCloud, _radiusSearch);
+    return normalsCloud;
+}
+
+pcl::PointCloud<pcl::PointNormal>::Ptr extractNormalsRadPC(
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
+    const float _radiusSearch,
+    const pcl::PointXYZRGB& _centroid)
+{
+    pcl::PointCloud<pcl::PointNormal>::Ptr normalsCloud(new pcl::PointCloud<pcl::PointNormal>);
+    computeNormalsRadPC(_pointCloud, normalsCloud, _radiusSearch, _centroid);
     return normalsCloud;
 }
 
@@ -379,6 +495,42 @@ pcl::PointIndices extractBiggestCluster(
     }
 
     return inliers;
+}
+
+pcl::PointCloud <pcl::PointXYZRGB>::Ptr computeSegmentation(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
+    const int _searchNeighbors,
+    const float _threshNormalsAngle,
+    const float _threshCurve)
+{
+    pcl::PointCloud<pcl::Normal>::Ptr normals = computeNormals(_cloud, _searchNeighbors);
+
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_xyz(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::copyPointCloud(*_cloud, *cloud_xyz);
+
+    pcl::search::KdTree<pcl::PointXYZ>::Ptr kdtree_xyz(new pcl::search::KdTree<pcl::PointXYZ>);
+    kdtree_xyz->setInputCloud(cloud_xyz);
+
+    pcl::RegionGrowing<pcl::PointXYZ,pcl::Normal> reg;
+    reg.setMinClusterSize(40);
+    reg.setSearchMethod(kdtree_xyz);
+    reg.setNumberOfNeighbours(_searchNeighbors);
+    reg.setInputCloud(cloud_xyz);
+    reg.setInputNormals(normals);
+    reg.setSmoothnessThreshold(_threshNormalsAngle * M_PI/180.0);
+    reg.setCurvatureThreshold(_threshCurve);
+
+    std::vector<pcl::PointIndices> clusters;
+    reg.extract(clusters);
+
+    std::cout << "Number of clusters is equal to " << clusters.size() << std::endl;
+
+    for(size_t i=0; i < clusters.size(); ++i) {
+        std::cout << i << " cluster has " << clusters[i].indices.size () << " points." << std::endl;
+    }
+
+    pcl::PointCloud <pcl::PointXYZRGB>::Ptr colored_cloud = reg.getColoredCloud();
+    return colored_cloud;
 }
 
 void smoothPC(pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud, const float _searchRadius)
@@ -645,12 +797,7 @@ pcl::PrincipalCurvatures computeCurvature(
     kdtree->setInputCloud(cloud_copy);
 
     // Step 3: Compute normals for the whole cloud
-    pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
-    pcl::NormalEstimation<pcl::PointXYZRGB, pcl::Normal> ne;
-    ne.setInputCloud(cloud_copy);
-    ne.setSearchMethod(kdtree);
-    ne.setRadiusSearch(_radius); // Use the same radius for normal estimation
-    ne.compute(*normals);
+    pcl::PointCloud<pcl::Normal>::Ptr normals = computeNormalsRad(cloud_copy, _radius);
 
     // Step 4: Compute principal curvatures for the whole cloud
     pcl::PrincipalCurvaturesEstimation<pcl::PointXYZRGB, pcl::Normal, pcl::PrincipalCurvatures> ce;
@@ -946,6 +1093,19 @@ bool checkInboundPoints(const pcl::PointXYZRGB _min_pt, const pcl::PointXYZRGB _
     return isPointInBound;
 }
 
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr centerCloud(pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud)
+{
+    Eigen::Vector4f centroid;
+    pcl::compute3DCentroid(*_cloud, centroid);
+
+    Eigen::Affine3f transform = Eigen::Affine3f::Identity();
+    transform.translation() << -centroid[0], -centroid[1], -centroid[2];
+
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_centered(new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::transformPointCloud(*_cloud, *cloud_centered, transform);
+    return cloud_centered;
+}
+
 void addCloud2View(pcl::visualization::PCLVisualizer::Ptr _viewer, pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud, const std::string& _name)
 {
     pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGB> rgb(_cloud);
@@ -959,7 +1119,8 @@ void view(const std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> _clouds)
     viewer->setBackgroundColor(0, 0, 0);
     int i = 0;
     for (pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud : _clouds) {
-        addCloud2View(viewer, cloud, "cloud" + std::to_string(i));
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr centeredCloud = centerCloud(cloud);
+        addCloud2View(viewer, centeredCloud, "cloud" + std::to_string(i));
         ++i;
     }
     viewer->addCoordinateSystem(1.0);

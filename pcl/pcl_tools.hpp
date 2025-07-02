@@ -12,6 +12,7 @@
 #include <pcl/common/centroid.h>
 #include <pcl/common/common.h>
 #include <pcl/common/pca.h>
+#include <pcl/common/transforms.h>
 #include <pcl/features/boundary.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/features/principal_curvatures.h>
@@ -24,14 +25,15 @@
 #include <pcl/point_types.h>
 #include <pcl/search/kdtree.h>
 #include <pcl/segmentation/extract_clusters.h>
+#include <pcl/segmentation/region_growing.h>
 #include <pcl/surface/mls.h>
 #include <pcl/visualization/pcl_visualizer.h>
 
 namespace pcl_tools {
 
 // Constants
-constexpr int N_NEIGHBORS_SEARCH = 4;
-constexpr float DRONE_RADIUS = 1.5f;
+constexpr int N_NEIGHBORS_SEARCH = 30;
+constexpr int HIGH_VIEW = 99999;
 
 struct BoundingBox {
     float min_x, max_x, min_y, max_y, min_z, max_z;
@@ -80,20 +82,67 @@ void extractPoints(
 
 pcl::PointIndices removeNaNFromNormalCloud(pcl::PointCloud<pcl::PointNormal>::Ptr normalsCloud);
 
-void removeInvalidPoints(const pcl::PointCloud<pcl::PointXYZRGB>& input,
-                            pcl::PointCloud<pcl::PointXYZRGB>& output);
+void removeInvalidPoints(
+    const pcl::PointCloud<pcl::PointXYZRGB>& input,
+    pcl::PointCloud<pcl::PointXYZRGB>& output
+);
+
+pcl::PointCloud<pcl::Normal>::Ptr computeNormals(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
+    const int _searchNeighbors
+);
+
+pcl::PointCloud<pcl::Normal>::Ptr computeNormalsRad(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
+    const float _searchRadius
+);
 
 pcl::PointIndices computeNormalsPC(
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloud,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloud,
     pcl::PointCloud<pcl::PointNormal>::Ptr normalsCloud,
-    const pcl::PointXYZRGB& viewPoint,
-    int searchNeighbors = N_NEIGHBORS_SEARCH
+    const int searchNeighbors = N_NEIGHBORS_SEARCH
+);
+
+pcl::PointIndices computeNormalsPC(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloud,
+    pcl::PointCloud<pcl::PointNormal>::Ptr normalsCloud,
+    const int searchNeighbors,
+    const pcl::PointXYZRGB& viewPoint
+);
+
+pcl::PointIndices computeNormalsRadPC(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloud,
+    pcl::PointCloud<pcl::PointNormal>::Ptr normalsCloud,
+    const float searchRadius
+);
+
+pcl::PointIndices computeNormalsRadPC(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloud,
+    pcl::PointCloud<pcl::PointNormal>::Ptr normalsCloud,
+    const float searchRadius,
+    const pcl::PointXYZRGB& viewPoint
 );
 
 pcl::PointCloud<pcl::PointNormal>::Ptr extractNormalsPC(
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloud,
-    const pcl::PointXYZRGB& centroid,
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
     const int _nNeighborsSearch
+);
+
+pcl::PointCloud<pcl::PointNormal>::Ptr extractNormalsPC(
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
+    const int _nNeighborsSearch,
+    const pcl::PointXYZRGB& _centroid
+);
+
+pcl::PointCloud<pcl::PointNormal>::Ptr extractNormalsRadPC(
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
+    const float _radiusSearch
+);
+
+pcl::PointCloud<pcl::PointNormal>::Ptr extractNormalsRadPC(
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
+    const float _radiusSearch,
+    const pcl::PointXYZRGB& _centroid
 );
 
 // Point cloud analysis
@@ -136,6 +185,13 @@ pcl::PointIndices extractBiggestCluster(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloud,
     float threshold,
     int minPoints=10
+);
+
+pcl::PointCloud <pcl::PointXYZRGB>::Ptr computeSegmentation(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
+    const int _searchNeighbors = 20,
+    const float _threshNormalsAngle = 20.0,
+    const float _threshCurve = 0.03
 );
 
 void removeNoise(
@@ -254,6 +310,8 @@ void colorSegmentedPoints(
 
 // Data viz
 bool checkInboundPoints(const pcl::PointXYZRGB min_pt, const pcl::PointXYZRGB max_pt, float& x, float& y);
+
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr centerCloud(pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud);
 
 void view(const std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> clouds);
 
