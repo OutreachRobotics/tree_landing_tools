@@ -50,6 +50,19 @@ bool savePly(const std::string& _filePath, const pcl::PointCloud<pcl::PointXYZRG
     return true;
 }
 
+bool saveDepthMapAsTiff(const cv::Mat& _depth_map, const std::string& _filePath)
+{
+    // Ensure the matrix is not empty before saving
+    if (_depth_map.empty()) {
+        std::cout << "Error: Can't save empty depth map." << std::endl;
+        return false;
+    }
+
+    cv::imwrite(_filePath, _depth_map);
+    std::cout << "Successfully saved point cloud to " << _filePath << std::endl;
+    return true;
+}
+
 template <typename PointT>
 void extractPoints(
     const pcl::PointCloud<PointT>& _ogCloud,
@@ -533,6 +546,194 @@ pcl::PointCloud <pcl::PointXYZRGB>::Ptr computeSegmentation(
     return colored_cloud;
 }
 
+std::map<std::pair<int, int>, int> computeGrid(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
+    const float _leafSize)
+{
+    // 1. Create the map to store the highest point for each grid cell
+    // The key is the grid cell coordinate, the value is the index of the point
+    std::map<std::pair<int, int>, int> grid;
+
+    // 2. Iterate through the cloud and find the highest point in each cell
+    for (int i = 0; i < _cloud->points.size(); ++i) {
+        int grid_x = static_cast<int>(floor(_cloud->points[i].x / _leafSize));
+        int grid_y = static_cast<int>(floor(_cloud->points[i].y / _leafSize));
+        std::pair<int, int> cell = std::make_pair(grid_x, grid_y);
+
+        // Check if a point is already in this cell
+        if (grid.find(cell) == grid.end()) {
+            // No point yet, so add this one
+            grid[cell] = i;
+        } else {
+            // A point exists, check if the new one is higher
+            int idx = grid[cell];
+
+            if (_cloud->points[i].z > _cloud->points[idx].z) {
+                // New point is higher, replace the old one
+                grid[cell] = i;
+            }
+        }
+    }
+
+    return grid;
+}
+
+cv::Mat computeDepthMap(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
+    const float _leafSize,
+    const int _kernelSize)
+{
+    std::map<std::pair<int, int>, int> grid = computeGrid(_cloud, _leafSize);
+
+    if (grid.empty()) {
+        return cv::Mat(); // Return empty matrix if grid is empty
+    }
+
+    // 1. Find the min/max grid coordinates to determine map dimensions
+    int min_x = grid.begin()->first.first;
+    int max_x = grid.begin()->first.first;
+    int min_y = grid.begin()->first.second;
+    int max_y = grid.begin()->first.second;
+
+    for (const auto& pair : grid) {
+        if (pair.first.first < min_x)  min_x = pair.first.first;
+        if (pair.first.first > max_x)  max_x = pair.first.first;
+        if (pair.first.second < min_y) min_y = pair.first.second;
+        if (pair.first.second > max_y) max_y = pair.first.second;
+    }
+
+    // 2. Create the depth map, initialized to 0 (or another value for no data)
+    cv::Mat depth_map = cv::Mat::zeros(max_y - min_y + 1, max_x - min_x + 1, CV_32FC1);
+
+    // 3. Populate the depth map
+    for (const auto& pair : grid) {
+        int grid_x = pair.first.first;
+        int grid_y = pair.first.second;
+        int point_idx = pair.second;
+
+        // Get the depth (Z value) from the original cloud
+        float depth = _cloud->points[point_idx].z;
+
+        // Assign it to the correct pixel in the map (after shifting coordinates)
+        depth_map.at<float>(grid_y - min_y, grid_x - min_x) = depth;
+    }
+
+    // 4. Create a matrix to store the filtered result
+    cv::Mat filtered_depth_map;
+    cv::medianBlur(depth_map, filtered_depth_map, _kernelSize);
+    return filtered_depth_map;
+}
+
+cv::Mat visualizeMarkers(const cv::Mat& markers)
+{
+    // Find the number of segments
+    double minVal, maxVal;
+    cv::minMaxLoc(markers, &minVal, &maxVal);
+    int numSegments = static_cast<int>(maxVal);
+
+    // Generate a color table with a random BGR color for each segment
+    std::vector<cv::Vec3b> colorTab;
+    // We add 1 to numSegments because labels are 1-based after connectedComponents
+    for (int i = 0; i <= numSegments; ++i) {
+        int b = cv::theRNG().uniform(0, 255);
+        int g = cv::theRNG().uniform(0, 255);
+        int r = cv::theRNG().uniform(0, 255);
+        colorTab.push_back(cv::Vec3b((uchar)b, (uchar)g, (uchar)r));
+    }
+
+    // Create the visualization image
+    cv::Mat markers_viz(markers.size(), CV_8UC3);
+
+    // Paint the markers image
+    for (int i = 0; i < markers.rows; ++i) {
+        for (int j = 0; j < markers.cols; ++j) {
+            int index = markers.at<int>(i, j);
+            if (index == -1) { // Boundaries
+                markers_viz.at<cv::Vec3b>(i, j) = cv::Vec3b(255, 255, 255); // White
+            } else if (index == 0) { // Unknown region
+                markers_viz.at<cv::Vec3b>(i, j) = cv::Vec3b(0, 0, 0);       // Black
+            } else { // Object or background segments
+                markers_viz.at<cv::Vec3b>(i, j) = colorTab[index];
+            }
+        }
+    }
+
+    return markers_viz;
+}
+
+cv::Mat segmentWatershed(const cv::Mat& _depthMap, const float _thresh_fg)
+{
+    // 1. NORMALIZE AND COLORIZE THE DEPTH MAP
+    // Convert the 32F depth map to a visual 8U format
+    cv::Mat norm_depth;
+    cv::normalize(_depthMap, norm_depth, 0, 255, cv::NORM_MINMAX, CV_8UC1);
+
+    // Create a 3-channel color image for the watershed algorithm
+    cv::Mat color_depth;
+    cv::applyColorMap(norm_depth, color_depth, cv::COLORMAP_JET);
+
+    // 2. CREATE MARKERS AUTOMATICALLY
+    // Threshold to get a binary image of potential objects
+    // cv::Mat binary;
+    // cv::threshold(norm_depth, binary, 0, 255, cv::THRESH_BINARY | cv::THRESH_OTSU);
+
+    // Define "sure background" as all pixels with 0 value in the original depth map
+    cv::Mat sure_bg;
+    cv::compare(_depthMap, 0, sure_bg, cv::CMP_EQ);
+
+    // Create an inverted version of the background mask
+    cv::Mat foreground_mask;
+    cv::bitwise_not(sure_bg, foreground_mask);
+
+    // Find "sure foreground" area using distance transform
+    cv::Mat dist_transform;
+    // cv::distanceTransform(binary, dist_transform, cv::DIST_L2, 5);
+    cv::distanceTransform(foreground_mask, dist_transform, cv::DIST_L2, 5);
+    cv::normalize(dist_transform, dist_transform, 0, 1.0, cv::NORM_MINMAX);
+
+    cv::Mat sure_fg;
+    cv::threshold(dist_transform, sure_fg, _thresh_fg, 1.0, cv::THRESH_BINARY);
+    sure_fg.convertTo(sure_fg, CV_8U, 255.0);
+
+    // Find unknown region
+    // Combine the known regions into a single mask
+    cv::Mat known_markers;
+    cv::bitwise_or(sure_bg, sure_fg, known_markers);
+
+    // The unknown region is everything not in the known markers
+    cv::Mat unknown;
+    cv::bitwise_not(known_markers, unknown);
+
+    // 3. LABEL THE MARKERS
+    cv::Mat markers;
+    cv::connectedComponents(sure_fg, markers);
+    // Add 1 to all labels so that sure background is not 0, but 1
+    markers = markers + 1;
+    // Mark the region of unknown with zero
+    markers.setTo(0, unknown == 255);
+
+    // 4. APPLY WATERSHED
+    cv::watershed(color_depth, markers);
+
+    // 5. VISUALIZE THE RESULT
+    cv::Mat markers_viz = visualizeMarkers(markers);
+    
+    // Blend the result with the original color depth map
+    cv::Mat wshed = markers_viz * 0.5 + color_depth * 0.5;
+
+    // You can also show intermediate steps
+    cv::imshow("Depth Map", norm_depth);
+    cv::imshow("Color Depth Map", color_depth);
+    cv::imshow("Sure Foreground", sure_fg);
+    cv::imshow("Sure Background", sure_bg);
+    cv::imshow("Unknown", unknown);
+    cv::imshow("Markers", markers_viz);
+    cv::imshow("Watershed", wshed);
+    cv::waitKey(0);
+    
+    return wshed;
+}
+
 void smoothPC(pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud, const float _searchRadius)
 {
     // Output has the PointNormal type in order to store the normals calculated by MLS
@@ -690,30 +891,7 @@ pcl::PointIndices findSurface(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
     const float _leafSize)
 {
-    // 1. Create the map to store the highest point for each grid cell
-    // The key is the grid cell coordinate, the value is the index of the point
-    std::map<std::pair<int, int>, int> grid;
-
-    // 2. Iterate through the cloud and find the highest point in each cell
-    for (int i = 0; i < _cloud->points.size(); ++i) {
-        int grid_x = static_cast<int>(floor(_cloud->points[i].x / _leafSize));
-        int grid_y = static_cast<int>(floor(_cloud->points[i].y / _leafSize));
-        std::pair<int, int> cell = std::make_pair(grid_x, grid_y);
-
-        // Check if a point is already in this cell
-        if (grid.find(cell) == grid.end()) {
-            // No point yet, so add this one
-            grid[cell] = i;
-        } else {
-            // A point exists, check if the new one is higher
-            int idx = grid[cell];
-
-            if (_cloud->points[i].z > _cloud->points[idx].z) {
-                // New point is higher, replace the old one
-                grid[cell] = i;
-            }
-        }
-    }
+    std::map<std::pair<int, int>, int> grid = computeGrid(_cloud, _leafSize);
 
     pcl::PointIndices surfacePointsIdx;
     surfacePointsIdx.indices.reserve(grid.size());

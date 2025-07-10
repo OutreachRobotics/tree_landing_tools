@@ -3,6 +3,7 @@
 
 #include <iostream>
 #include <fstream>
+#include <opencv2/opencv.hpp>
 #include <unordered_set>
 
 #if defined(ROS_VERSION) && ROS_VERSION == 2
@@ -70,6 +71,8 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr loadPly(const std::string& filePath);
 
 // Point cloud saving
 bool savePly(const std::string& filePath, const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& cloud);
+
+bool saveDepthMapAsTiff(const cv::Mat& _depth_map, const std::string& _filename);
 
 // Point cloud processing
 template <typename PointT>
@@ -193,6 +196,14 @@ pcl::PointCloud <pcl::PointXYZRGB>::Ptr computeSegmentation(
     const float _threshNormalsAngle = 20.0,
     const float _threshCurve = 0.03
 );
+
+cv::Mat computeDepthMap(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
+    const float _leafSize,
+    const int _kernelSize = 3
+);
+
+cv::Mat segmentWatershed(const cv::Mat& _depthMap, const float _thresh_fg = 0.7);
 
 void removeNoise(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloud,
