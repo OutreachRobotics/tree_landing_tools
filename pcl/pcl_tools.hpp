@@ -66,13 +66,20 @@ struct BoundingBox {
     {}
 };
 
+struct DepthMapData {
+    cv::Mat depthMap;
+    std::map<std::pair<int, int>, int> grid; // The grid-to-index map
+    int min_x;
+    int min_y;
+};
+
 // Point cloud loading
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr loadPly(const std::string& filePath);
 
 // Point cloud saving
 bool savePly(const std::string& filePath, const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& cloud);
 
-bool saveDepthMapAsTiff(const cv::Mat& _depth_map, const std::string& _filename);
+// bool saveDepthMapAsTiff(const cv::Mat& _depth_map, const std::string& _filename);
 
 // Point cloud processing
 template <typename PointT>
@@ -197,13 +204,12 @@ pcl::PointCloud <pcl::PointXYZRGB>::Ptr computeSegmentation(
     const float _threshCurve = 0.03
 );
 
-cv::Mat computeDepthMap(
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
     const float _leafSize,
-    const int _kernelSize = 3
+    const int _kernelSize = 3,
+    const float _thresh_fg = 0.7
 );
-
-cv::Mat segmentWatershed(const cv::Mat& _depthMap, const float _thresh_fg = 0.7);
 
 void removeNoise(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloud,

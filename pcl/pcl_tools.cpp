@@ -468,6 +468,37 @@ std::vector<pcl::PointIndices> extractClusters(
     return cluster_indices;
 }
 
+pcl::PointIndices extractBiggestSegment(
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
+    std::vector<pcl::PointIndices> _segment_indices)
+{
+    int largest_cluster_index = -1;
+    int largest_cluster_size = 0;
+    for (size_t i = 0; i < _segment_indices.size(); ++i)
+    {
+        int cluster_size = _segment_indices[i].indices.size();
+        if (cluster_size > largest_cluster_size)
+        {
+            largest_cluster_index = i;
+            largest_cluster_size = cluster_size;
+        }
+    }
+
+    pcl::PointIndices inliers;
+    if (largest_cluster_index != -1)
+    {
+        inliers = _segment_indices[largest_cluster_index];
+        extractPoints(*_pointCloud, *_pointCloud, inliers, false);
+        std::cout << "The point cloud has " << std::to_string(_segment_indices.size()) << " clusters." << std::endl;
+    }
+    else
+    {
+        std::cout << "No clusters found in the point cloud." << std::endl;
+    } 
+
+    return inliers;
+}
+
 pcl::PointIndices extractBiggestCluster(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
     const float _threshold,
@@ -482,32 +513,7 @@ pcl::PointIndices extractBiggestCluster(
         _minPoints
     );
 
-    // Find the largest cluster
-    int largest_cluster_index = -1;
-    int largest_cluster_size = 0;
-    for (size_t i = 0; i < cluster_indices.size(); ++i)
-    {
-        int cluster_size = cluster_indices[i].indices.size();
-        if (cluster_size > largest_cluster_size)
-        {
-            largest_cluster_index = i;
-            largest_cluster_size = cluster_size;
-        }
-    }
-
-    pcl::PointIndices inliers;
-    if (largest_cluster_index != -1)
-    {
-        inliers = cluster_indices[largest_cluster_index];
-        extractPoints(*_pointCloud, *_pointCloud, inliers, false);
-        std::cout << "The point cloud has " << std::to_string(cluster_indices.size()) << " clusters." << std::endl;
-    }
-    else
-    {
-        std::cout << "No clusters found in the point cloud." << std::endl;
-    }
-
-    return inliers;
+    return extractBiggestSegment(_pointCloud, cluster_indices);
 }
 
 pcl::PointCloud <pcl::PointXYZRGB>::Ptr computeSegmentation(
@@ -578,7 +584,7 @@ std::map<std::pair<int, int>, int> computeGrid(
     return grid;
 }
 
-cv::Mat computeDepthMap(
+DepthMapData computeDepthMap(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
     const float _leafSize,
     const int _kernelSize)
@@ -586,7 +592,7 @@ cv::Mat computeDepthMap(
     std::map<std::pair<int, int>, int> grid = computeGrid(_cloud, _leafSize);
 
     if (grid.empty()) {
-        return cv::Mat(); // Return empty matrix if grid is empty
+        return DepthMapData(); // Return empty matrix if grid is empty
     }
 
     // 1. Find the min/max grid coordinates to determine map dimensions
@@ -621,33 +627,106 @@ cv::Mat computeDepthMap(
     // 4. Create a matrix to store the filtered result
     cv::Mat filtered_depth_map;
     cv::medianBlur(depth_map, filtered_depth_map, _kernelSize);
-    return filtered_depth_map;
+    return {filtered_depth_map, grid, min_x, min_y};
 }
 
-cv::Mat visualizeMarkers(const cv::Mat& markers)
+std::vector<pcl::PointIndices> mapSegmentsToIndices(
+    const cv::Mat& _markers,
+    const DepthMapData& _mapData)
 {
-    // Find the number of segments
-    double minVal, maxVal;
-    cv::minMaxLoc(markers, &minVal, &maxVal);
-    int numSegments = static_cast<int>(maxVal);
+    // Use a map internally to associate labels with their index clusters
+    std::map<int, pcl::PointIndices::Ptr> temp_segment_map;
 
+    for (int v = 0; v < _markers.rows; ++v) {
+        for (int u = 0; u < _markers.cols; ++u) {
+            int label = _markers.at<int>(v, u);
+
+            // This already skips the background cluster (label <= 1)
+            if (label <= 1) {
+                continue;
+            }
+
+            // If this is the first point for a new segment, create an entry in the map
+            if (temp_segment_map.find(label) == temp_segment_map.end()) {
+                temp_segment_map[label] = pcl::make_shared<pcl::PointIndices>();
+            }
+
+            // Find the original point index from the grid map
+            int grid_x = u + _mapData.min_x;
+            int grid_y = v + _mapData.min_y;
+            auto it = _mapData.grid.find({grid_x, grid_y});
+
+            if (it != _mapData.grid.end()) {
+                // Add the index to the appropriate cluster
+                temp_segment_map[label]->indices.push_back(it->second);
+            }
+        }
+    }
+
+    // Convert the map to the final output vector
+    std::vector<pcl::PointIndices> final_clusters;
+    for (const auto& pair : temp_segment_map) {
+        final_clusters.push_back(*pair.second);
+    }
+
+    return final_clusters;
+}
+
+std::vector<pcl::RGB> generatePclColors(const int _numColors)
+{
+    std::vector<pcl::RGB> color_table;
+    color_table.reserve(_numColors);
+
+    for (int i = 0; i < _numColors; ++i) {
+        // Generate a distinct color by cycling through the HSV hue space
+        cv::Mat hsv(1, 1, CV_8UC3, cv::Scalar(i * 180.0 / _numColors, 255, 255));
+        cv::Mat bgr_mat;
+        cv::cvtColor(hsv, bgr_mat, cv::COLOR_HSV2BGR);
+        cv::Vec3b bgr = bgr_mat.at<cv::Vec3b>(0, 0);
+
+        // Create a PCL color object with the correct RGB order
+        pcl::RGB color;
+        color.r = bgr[2]; // Red channel
+        color.g = bgr[1]; // Green channel
+        color.b = bgr[0]; // Blue channel
+
+        color_table.push_back(color);
+    }
+
+    return color_table;
+}
+
+std::vector<cv::Vec3b> generateCvColors(const int _numColors)
+{
     // Generate a color table with a random BGR color for each segment
     std::vector<cv::Vec3b> colorTab;
     // We add 1 to numSegments because labels are 1-based after connectedComponents
-    for (int i = 0; i <= numSegments; ++i) {
-        int b = cv::theRNG().uniform(0, 255);
-        int g = cv::theRNG().uniform(0, 255);
-        int r = cv::theRNG().uniform(0, 255);
-        colorTab.push_back(cv::Vec3b((uchar)b, (uchar)g, (uchar)r));
+    for (int i = 0; i <= _numColors; ++i) {
+        cv::Mat hsv(1, 1, CV_8UC3, cv::Scalar(i * 180.0 / _numColors, 255, 255));
+        cv::Mat bgr_mat;
+        cv::cvtColor(hsv, bgr_mat, cv::COLOR_HSV2BGR);
+        cv::Vec3b bgr = bgr_mat.at<cv::Vec3b>(0, 0);
+        colorTab.push_back(cv::Vec3b((uchar)bgr[0], (uchar)bgr[1], (uchar)bgr[2]));
     }
 
+    return colorTab;
+}
+
+cv::Mat visualizeMarkers(const cv::Mat& _markers)
+{
+    // Find the number of segments
+    double minVal, maxVal;
+    cv::minMaxLoc(_markers, &minVal, &maxVal);
+    int numSegments = static_cast<int>(maxVal);
+    std::vector<cv::Vec3b> colorTab = generateCvColors(numSegments);
+
     // Create the visualization image
-    cv::Mat markers_viz(markers.size(), CV_8UC3);
+    cv::Mat markers_viz(_markers.size(), CV_8UC3);
 
     // Paint the markers image
-    for (int i = 0; i < markers.rows; ++i) {
-        for (int j = 0; j < markers.cols; ++j) {
-            int index = markers.at<int>(i, j);
+    for (int i = 0; i < _markers.rows; ++i) {
+        for (int j = 0; j < _markers.cols; ++j) {
+            int index = _markers.at<int>(i, j);
             if (index == -1) { // Boundaries
                 markers_viz.at<cv::Vec3b>(i, j) = cv::Vec3b(255, 255, 255); // White
             } else if (index == 0) { // Unknown region
@@ -661,12 +740,20 @@ cv::Mat visualizeMarkers(const cv::Mat& markers)
     return markers_viz;
 }
 
-cv::Mat segmentWatershed(const cv::Mat& _depthMap, const float _thresh_fg)
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
+    const float _leafSize,
+    const int _kernelSize,
+    const float _thresh_fg)
 {
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr outputCloud(new pcl::PointCloud<pcl::PointXYZRGB>(*_cloud));
+
+    DepthMapData depthMapData = computeDepthMap( _cloud, _leafSize, _kernelSize);
+
     // 1. NORMALIZE AND COLORIZE THE DEPTH MAP
     // Convert the 32F depth map to a visual 8U format
     cv::Mat norm_depth;
-    cv::normalize(_depthMap, norm_depth, 0, 255, cv::NORM_MINMAX, CV_8UC1);
+    cv::normalize(depthMapData.depthMap, norm_depth, 0, 255, cv::NORM_MINMAX, CV_8UC1);
 
     // Create a 3-channel color image for the watershed algorithm
     cv::Mat color_depth;
@@ -679,7 +766,7 @@ cv::Mat segmentWatershed(const cv::Mat& _depthMap, const float _thresh_fg)
 
     // Define "sure background" as all pixels with 0 value in the original depth map
     cv::Mat sure_bg;
-    cv::compare(_depthMap, 0, sure_bg, cv::CMP_EQ);
+    cv::compare(depthMapData.depthMap, 0, sure_bg, cv::CMP_EQ);
 
     // Create an inverted version of the background mask
     cv::Mat foreground_mask;
@@ -730,8 +817,18 @@ cv::Mat segmentWatershed(const cv::Mat& _depthMap, const float _thresh_fg)
     cv::imshow("Markers", markers_viz);
     cv::imshow("Watershed", wshed);
     cv::waitKey(0);
+
+    std::vector<pcl::PointIndices> clusters = mapSegmentsToIndices(markers, depthMapData);
+    extractBiggestSegment(_cloud, clusters);
+
+    std::vector<pcl::RGB> colorTable = generatePclColors(clusters.size());
+
+    colorSegmentedPoints(outputCloud, pcl::RGB(255,255,255));
+    for(size_t i=0; i < clusters.size(); ++i) {
+        colorSegmentedPoints(outputCloud, clusters[i], colorTable[i]);
+    }
     
-    return wshed;
+    return outputCloud;
 }
 
 void smoothPC(pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud, const float _searchRadius)
