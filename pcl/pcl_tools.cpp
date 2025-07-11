@@ -627,21 +627,34 @@ DepthMapData computeDepthMap(
     // 4. Create a matrix to store the filtered result
     cv::Mat filtered_depth_map;
     cv::medianBlur(depth_map, filtered_depth_map, _kernelSize);
-    return {filtered_depth_map, grid, min_x, min_y};
+    return {filtered_depth_map, grid, min_x, min_y, _leafSize};
 }
 
-std::vector<pcl::PointIndices> mapSegmentsToIndices(
-    const cv::Mat& _markers,
-    const DepthMapData& _mapData)
+std::vector<pcl::PointIndices> mapPointsToSegments(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _cloud, // The original, full point cloud
+    const cv::Mat& _markers,                               // The segmentation result
+    const DepthMapData& _mapData)                          // Contains min_x, min_y
 {
-    // Use a map internally to associate labels with their index clusters
+    // A map to hold the clusters, keyed by their segment label
     std::map<int, pcl::PointIndices::Ptr> temp_segment_map;
 
-    for (int v = 0; v < _markers.rows; ++v) {
-        for (int u = 0; u < _markers.cols; ++u) {
+    // 1. Iterate through EVERY point in the original cloud
+    for (int i = 0; i < _cloud->points.size(); ++i) {
+        const auto& point = _cloud->points[i];
+
+        // 2. Project the 3D point back to 2D grid/pixel coordinates
+        int grid_x = static_cast<int>(floor(point.x / _mapData.leafSize));
+        int grid_y = static_cast<int>(floor(point.y / _mapData.leafSize));
+
+        int u = grid_x - _mapData.min_x; // Pixel column
+        int v = grid_y - _mapData.min_y; // Pixel row
+
+        // 3. Check if the point's projection falls within the bounds of the marker image
+        if (v >= 0 && v < _markers.rows && u >= 0 && u < _markers.cols) {
+            // 4. Get the segment label from the corresponding pixel in the marker image
             int label = _markers.at<int>(v, u);
 
-            // This already skips the background cluster (label <= 1)
+            // Skip background (label 1) and watershed boundaries (label -1)
             if (label <= 1) {
                 continue;
             }
@@ -651,15 +664,8 @@ std::vector<pcl::PointIndices> mapSegmentsToIndices(
                 temp_segment_map[label] = pcl::make_shared<pcl::PointIndices>();
             }
 
-            // Find the original point index from the grid map
-            int grid_x = u + _mapData.min_x;
-            int grid_y = v + _mapData.min_y;
-            auto it = _mapData.grid.find({grid_x, grid_y});
-
-            if (it != _mapData.grid.end()) {
-                // Add the index to the appropriate cluster
-                temp_segment_map[label]->indices.push_back(it->second);
-            }
+            // 5. Add the original point's index to the correct cluster
+            temp_segment_map[label]->indices.push_back(i);
         }
     }
 
@@ -743,8 +749,9 @@ cv::Mat visualizeMarkers(const cv::Mat& _markers)
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
     const float _leafSize,
-    const int _kernelSize,
-    const float _thresh_fg)
+    const float _radius,
+    const float _threshFg,
+    const int _kernelSize)
 {
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr outputCloud(new pcl::PointCloud<pcl::PointXYZRGB>(*_cloud));
 
@@ -772,15 +779,42 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
     cv::Mat foreground_mask;
     cv::bitwise_not(sure_bg, foreground_mask);
 
-    // Find "sure foreground" area using distance transform
+    // --- Method 1: Get seeds from Distance Transform ---
     cv::Mat dist_transform;
-    // cv::distanceTransform(binary, dist_transform, cv::DIST_L2, 5);
     cv::distanceTransform(foreground_mask, dist_transform, cv::DIST_L2, 5);
     cv::normalize(dist_transform, dist_transform, 0, 1.0, cv::NORM_MINMAX);
 
-    cv::Mat sure_fg;
-    cv::threshold(dist_transform, sure_fg, _thresh_fg, 1.0, cv::THRESH_BINARY);
-    sure_fg.convertTo(sure_fg, CV_8U, 255.0);
+    cv::Mat sure_fg_dist; // Mask from distance transform
+    // Adjust this threshold as needed
+    cv::threshold(dist_transform, sure_fg_dist, _threshFg, 1.0, cv::THRESH_BINARY);
+    sure_fg_dist.convertTo(sure_fg_dist, CV_8UC1, 255.0);
+
+
+    // --- Method 2: Get seeds from 3D Local Extrema ---
+    pcl::PointIndices maximumIdx = pcl_tools::findLocalExtremums(_cloud, _radius, false);
+    cv::Mat sure_fg_extremums = cv::Mat::zeros(depthMapData.depthMap.size(), CV_8UC1);
+
+    for (const int& index : maximumIdx.indices) {
+        const auto& point = _cloud->points[index];
+
+        // Project the 3D point back to 2D grid/pixel coordinates.
+        int grid_x = static_cast<int>(floor(point.x / _leafSize));
+        int grid_y = static_cast<int>(floor(point.y / _leafSize));
+
+        int u = grid_x - depthMapData.min_x; // Pixel column
+        int v = grid_y - depthMapData.min_y; // Pixel row
+
+        // Check if the projection is within the image bounds.
+        if (v >= 0 && v < sure_fg_extremums.rows && u >= 0 && u < sure_fg_extremums.cols) {
+            // Set the corresponding pixel to white (255) to mark it as sure foreground.
+            sure_fg_extremums.at<uchar>(v, u) = 255;
+        }
+    }
+
+
+    // --- FINAL STEP: Combine both masks ---
+    cv::Mat sure_fg; // This will be your final sure_fg mask
+    cv::bitwise_or(sure_fg_dist, sure_fg_extremums, sure_fg);
 
     // Find unknown region
     // Combine the known regions into a single mask
@@ -811,6 +845,8 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
     // You can also show intermediate steps
     cv::imshow("Depth Map", norm_depth);
     cv::imshow("Color Depth Map", color_depth);
+    cv::imshow("Sure Foreground dist", sure_fg_dist);
+    cv::imshow("Sure Foreground extremums", sure_fg_extremums);
     cv::imshow("Sure Foreground", sure_fg);
     cv::imshow("Sure Background", sure_bg);
     cv::imshow("Unknown", unknown);
@@ -818,11 +854,10 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
     cv::imshow("Watershed", wshed);
     cv::waitKey(0);
 
-    std::vector<pcl::PointIndices> clusters = mapSegmentsToIndices(markers, depthMapData);
+    std::vector<pcl::PointIndices> clusters = mapPointsToSegments(_cloud, markers, depthMapData);
     extractBiggestSegment(_cloud, clusters);
 
     std::vector<pcl::RGB> colorTable = generatePclColors(clusters.size());
-
     colorSegmentedPoints(outputCloud, pcl::RGB(255,255,255));
     for(size_t i=0; i < clusters.size(); ++i) {
         colorSegmentedPoints(outputCloud, clusters[i], colorTable[i]);
@@ -1216,9 +1251,7 @@ pcl::PointIndices findLocalExtremums(
     const bool _isMin)
 {
     pcl::Indices indices;
-
     pcl::PointCloud<pcl::PointXYZRGB> inputCloud;
-
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_copy(new pcl::PointCloud<pcl::PointXYZRGB>(*_cloud));
 
     if(_isMin)
@@ -1233,7 +1266,6 @@ pcl::PointIndices findLocalExtremums(
     lm.setNegative(true);
     lm.setRadius(_radius);
     lm.setInputCloud(cloud_copy);
-
     lm.filter(indices);
 
     pcl::PointIndices pointIndices;

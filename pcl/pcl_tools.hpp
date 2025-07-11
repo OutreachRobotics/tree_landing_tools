@@ -71,6 +71,7 @@ struct DepthMapData {
     std::map<std::pair<int, int>, int> grid; // The grid-to-index map
     int min_x;
     int min_y;
+    float leafSize;
 };
 
 // Point cloud loading
@@ -206,9 +207,10 @@ pcl::PointCloud <pcl::PointXYZRGB>::Ptr computeSegmentation(
 
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
-    const float _leafSize,
-    const int _kernelSize = 3,
-    const float _thresh_fg = 0.7
+    const float _leafSize = 0.1,
+    const float _radius = 1.0,
+    const float _threshFg = 0.5,
+    const int _kernelSize = 3
 );
 
 void removeNoise(
