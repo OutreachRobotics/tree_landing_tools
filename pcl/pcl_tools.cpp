@@ -395,26 +395,23 @@ void downSamplePC(
     sor.filter(*_pointCloud);
 }
 
-pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractNeighborPC(
-    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
+pcl::PointIndices extractNeighborPC(
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
     const pcl::PointXYZRGB& _center,
     const float _radius)
 {
     pcl::search::KdTree<pcl::PointXYZRGB>::Ptr kdtree(new pcl::search::KdTree<pcl::PointXYZRGB>);
     kdtree->setInputCloud(_pointCloud);
 
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr neighborsPC(new pcl::PointCloud<pcl::PointXYZRGB>);
-    neighborsPC->points.reserve(_pointCloud->points.size());
-
     std::vector<int> pointIdxRadiusSearch;
     std::vector<float> pointRadiusSquaredDistance;
+    pcl::PointIndices inliers;
     if(kdtree->radiusSearch(_center, _radius, pointIdxRadiusSearch, pointRadiusSquaredDistance) > 0){
-        for (size_t i = 0; i < pointIdxRadiusSearch.size(); ++i){
-            neighborsPC->points.emplace_back(_pointCloud->points[pointIdxRadiusSearch[i]]);
-        }
+        inliers.indices = pointIdxRadiusSearch;
     }
 
-    return neighborsPC;
+    extractPoints(*_pointCloud, *_pointCloud, inliers, false);
+    return inliers;
 }
 
 pcl::PointIndices concatenateClusters(
@@ -751,7 +748,8 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
     const float _leafSize,
     const float _radius,
     const float _threshFg,
-    const int _kernelSize)
+    const int _kernelSize,
+    const bool _shouldView)
 {
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr outputCloud(new pcl::PointCloud<pcl::PointXYZRGB>(*_cloud));
 
@@ -836,31 +834,33 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
     // 4. APPLY WATERSHED
     cv::watershed(color_depth, markers);
 
-    // 5. VISUALIZE THE RESULT
-    cv::Mat markers_viz = visualizeMarkers(markers);
-    
-    // Blend the result with the original color depth map
-    cv::Mat wshed = markers_viz * 0.5 + color_depth * 0.5;
-
-    // You can also show intermediate steps
-    cv::imshow("Depth Map", norm_depth);
-    cv::imshow("Color Depth Map", color_depth);
-    cv::imshow("Sure Foreground dist", sure_fg_dist);
-    cv::imshow("Sure Foreground extremums", sure_fg_extremums);
-    cv::imshow("Sure Foreground", sure_fg);
-    cv::imshow("Sure Background", sure_bg);
-    cv::imshow("Unknown", unknown);
-    cv::imshow("Markers", markers_viz);
-    cv::imshow("Watershed", wshed);
-    cv::waitKey(0);
-
     std::vector<pcl::PointIndices> clusters = mapPointsToSegments(_cloud, markers, depthMapData);
     extractBiggestSegment(_cloud, clusters);
 
-    std::vector<pcl::RGB> colorTable = generatePclColors(clusters.size());
-    colorSegmentedPoints(outputCloud, pcl::RGB(255,255,255));
-    for(size_t i=0; i < clusters.size(); ++i) {
-        colorSegmentedPoints(outputCloud, clusters[i], colorTable[i]);
+    if(_shouldView){
+        // 5. VISUALIZE THE RESULT
+        cv::Mat markers_viz = visualizeMarkers(markers);
+        
+        // Blend the result with the original color depth map
+        cv::Mat wshed = markers_viz * 0.5 + color_depth * 0.5;
+
+        // You can also show intermediate steps
+        cv::imshow("Depth Map", norm_depth);
+        cv::imshow("Color Depth Map", color_depth);
+        cv::imshow("Sure Foreground dist", sure_fg_dist);
+        cv::imshow("Sure Foreground extremums", sure_fg_extremums);
+        cv::imshow("Sure Foreground", sure_fg);
+        cv::imshow("Sure Background", sure_bg);
+        cv::imshow("Unknown", unknown);
+        cv::imshow("Markers", markers_viz);
+        cv::imshow("Watershed", wshed);
+        cv::waitKey(0);
+
+        std::vector<pcl::RGB> colorTable = generatePclColors(clusters.size());
+        colorSegmentedPoints(outputCloud, pcl::RGB(255,255,255));
+        for(size_t i=0; i < clusters.size(); ++i) {
+            colorSegmentedPoints(outputCloud, clusters[i], colorTable[i]);
+        }
     }
     
     return outputCloud;
@@ -1060,37 +1060,63 @@ float computeDensity(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud, float 
     return density;
 }
 
-int projectPoint(
-    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
-    pcl::PointXYZRGB& _point)
+float projectPoint(
+    const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr& _cloud,
+    pcl::PointXYZRGB& _point,
+    const int _numNeighbors)
 {
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_copy(new pcl::PointCloud<pcl::PointXYZRGB>(*_cloud));
-    for (auto& point : cloud_copy->points) {
+    // Validate inputs
+    if (!_cloud || _cloud->empty() || _numNeighbors <= 0) {
+        _point.z = 0.0f; // Set to a default value
+        return 0.0f;
+    }
+
+    // 1. Create a 2D representation of the cloud for an XY-plane search.
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_2d(new pcl::PointCloud<pcl::PointXYZRGB>(*_cloud));
+    for (auto& point : cloud_2d->points) {
         point.z = 0;
     }
 
+    // 2. Set up the KdTree for 2D search
     pcl::search::KdTree<pcl::PointXYZRGB>::Ptr kdtree(new pcl::search::KdTree<pcl::PointXYZRGB>);
-    kdtree->setInputCloud(cloud_copy);
+    kdtree->setInputCloud(cloud_2d);
 
-    std::vector<int> point_indices;
-    std::vector<float> point_distances;
-    int nClosestPoints = 4;
-    float avgZ = 0.0;
-    if (kdtree->nearestKSearch(_point, nClosestPoints, point_indices, point_distances) > 0) {
-        for (auto& idx : point_indices) {
-            pcl::PointXYZRGB closest_point = _cloud->points[idx];
-            std::cout << "Closest point: (" << closest_point.x << ", "
-                      << closest_point.y << ", " << closest_point.z << ")" << std::endl;
-            std::cout << "Z coordinate: " << closest_point.z << std::endl;
-            avgZ += closest_point.z;
+    // 3. Create a 2D search point (ignoring the original Z) to ensure a true 2D search
+    pcl::PointXYZRGB search_point_2d(_point.x, _point.y, 0.0f, 0, 0, 0);
+
+    // 4. Perform the nearest neighbor search
+    std::vector<int> neighbor_indices;
+    std::vector<float> neighbor_distances;
+    float median_z = 0.0f; // Default value if no neighbors are found
+
+    if (kdtree->nearestKSearch(search_point_2d, _numNeighbors, neighbor_indices, neighbor_distances) > 0)
+    {
+        // 5. Collect all Z values from the found neighbors
+        std::vector<float> z_values;
+        z_values.reserve(neighbor_indices.size());
+        for (const int& index : neighbor_indices) {
+            z_values.emplace_back(_cloud->points[index].z);
         }
-        avgZ = avgZ/float(point_indices.size());
-        std::cout << "Z average coordinate: " << avgZ << std::endl;
+
+        // 6. Calculate the median of the Z values
+        if (!z_values.empty()) {
+            // Sort the values to find the middle one
+            std::sort(z_values.begin(), z_values.end());
+
+            size_t n = z_values.size();
+            if (n % 2 == 0) {
+                // If the count is even, average the two middle elements
+                median_z = (z_values[n / 2 - 1] + z_values[n / 2]) / 2.0f;
+            } else {
+                // If the count is odd, pick the single middle element
+                median_z = z_values[n / 2];
+            }
+        }
     }
 
-    _point.z = avgZ;
-
-    return avgZ;
+    // 7. Update the Z coordinate of the input point and return the median
+    _point.z = median_z;
+    return median_z;
 }
 
 pcl::PrincipalCurvatures computeCurvature(

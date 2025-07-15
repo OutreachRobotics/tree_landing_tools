@@ -180,8 +180,8 @@ void downSamplePC(
     float leafSize
 );
 
-pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractNeighborPC(
-    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloud,
+pcl::PointIndices extractNeighborPC(
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloud,
     const pcl::PointXYZRGB& center,
     const float radius
 );
@@ -210,7 +210,8 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
     const float _leafSize = 0.1,
     const float _radius = 1.0,
     const float _threshFg = 0.5,
-    const int _kernelSize = 3
+    const int _kernelSize = 3,
+    const bool _shouldView = false
 );
 
 void removeNoise(
@@ -269,9 +270,10 @@ void extractSurface(
 // Geometric computations
 float computeDensity(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, float radius);
 
-int projectPoint(
-    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
-    pcl::PointXYZRGB& point
+float projectPoint(
+    const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr& _cloud,
+    pcl::PointXYZRGB& _point,
+    const int _numNeighbors = 12
 );
 
 pcl::PrincipalCurvatures computeCurvature(
