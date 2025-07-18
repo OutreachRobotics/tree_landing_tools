@@ -63,22 +63,6 @@ bool saveDepthMapAsTiff(const cv::Mat& _depth_map, const std::string& _filePath)
     return true;
 }
 
-template <typename PointT>
-void extractPoints(
-    const pcl::PointCloud<PointT>& _ogCloud,
-    pcl::PointCloud<PointT>& _outputCloud,
-    const pcl::PointIndices& _indices,
-    bool _isExtractingOutliers)
-{
-    pcl::copyPointCloud(_ogCloud, _outputCloud);
-
-    pcl::ExtractIndices<PointT> extract;
-    extract.setInputCloud(_ogCloud.makeShared());
-    extract.setNegative(_isExtractingOutliers);
-    extract.setIndices(std::make_shared<pcl::PointIndices>(_indices));
-    extract.filter(_outputCloud);
-}
-
 pcl::PointIndices removeNaNFromNormalCloud(pcl::PointCloud<pcl::PointNormal>::Ptr _normalsCloud)
 {
     pcl::PointCloud<pcl::PointNormal> tempCloud;
@@ -165,7 +149,7 @@ pcl::PointCloud<pcl::Normal>::Ptr computeNormalsRad(
 }
 
 pcl::PointIndices computeNormalsPC(
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _pointCloud,
     pcl::PointCloud<pcl::PointNormal>::Ptr _normalsCloud,
     const int _searchNeighbors)
 {
@@ -180,7 +164,7 @@ pcl::PointIndices computeNormalsPC(
 }
 
 pcl::PointIndices computeNormalsPC(
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _pointCloud,
     pcl::PointCloud<pcl::PointNormal>::Ptr _normalsCloud,
     const int _searchNeighbors,
     const pcl::PointXYZRGB& _viewPoint)
@@ -196,13 +180,13 @@ pcl::PointIndices computeNormalsPC(
     ne.compute(*_normalsCloud);
 
     pcl::PointIndices removedIdx = removeNaNFromNormalCloud(_normalsCloud);
-    extractPoints(*_pointCloud, *_pointCloud, removedIdx, true);
+    _pointCloud = extractPoints<pcl::PointXYZRGB>(_pointCloud, removedIdx, true);
 
     return removedIdx;
 }
 
 pcl::PointIndices computeNormalsRadPC(
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _pointCloud,
     pcl::PointCloud<pcl::PointNormal>::Ptr _normalsCloud,
     const float _searchRadius)
 {
@@ -217,7 +201,7 @@ pcl::PointIndices computeNormalsRadPC(
 }
 
 pcl::PointIndices computeNormalsRadPC(
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _pointCloud,
     pcl::PointCloud<pcl::PointNormal>::Ptr _normalsCloud,
     const float _searchRadius,
     const pcl::PointXYZRGB& _viewPoint)
@@ -233,13 +217,13 @@ pcl::PointIndices computeNormalsRadPC(
     ne.compute(*_normalsCloud);
 
     pcl::PointIndices removedIdx = removeNaNFromNormalCloud(_normalsCloud);
-    extractPoints(*_pointCloud, *_pointCloud, removedIdx, true);
+    _pointCloud = extractPoints<pcl::PointXYZRGB>(_pointCloud, removedIdx, true);
 
     return removedIdx;
 }
 
 pcl::PointCloud<pcl::PointNormal>::Ptr extractNormalsPC(
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _pointCloud,
     const int _nNeighborsSearch)
 {
     pcl::PointCloud<pcl::PointNormal>::Ptr normalsCloud(new pcl::PointCloud<pcl::PointNormal>);
@@ -248,7 +232,7 @@ pcl::PointCloud<pcl::PointNormal>::Ptr extractNormalsPC(
 }
 
 pcl::PointCloud<pcl::PointNormal>::Ptr extractNormalsPC(
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _pointCloud,
     const int _nNeighborsSearch,
     const pcl::PointXYZRGB& _centroid)
 {
@@ -258,7 +242,7 @@ pcl::PointCloud<pcl::PointNormal>::Ptr extractNormalsPC(
 }
 
 pcl::PointCloud<pcl::PointNormal>::Ptr extractNormalsRadPC(
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _pointCloud,
     const float _radiusSearch)
 {
     pcl::PointCloud<pcl::PointNormal>::Ptr normalsCloud(new pcl::PointCloud<pcl::PointNormal>);
@@ -267,7 +251,7 @@ pcl::PointCloud<pcl::PointNormal>::Ptr extractNormalsRadPC(
 }
 
 pcl::PointCloud<pcl::PointNormal>::Ptr extractNormalsRadPC(
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _pointCloud,
     const float _radiusSearch,
     const pcl::PointXYZRGB& _centroid)
 {
@@ -396,7 +380,7 @@ void downSamplePC(
 }
 
 pcl::PointIndices extractNeighborPC(
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _pointCloud,
     const pcl::PointXYZRGB& _center,
     const float _radius)
 {
@@ -410,7 +394,10 @@ pcl::PointIndices extractNeighborPC(
         inliers.indices = pointIdxRadiusSearch;
     }
 
-    extractPoints(*_pointCloud, *_pointCloud, inliers, false);
+    std::cout << "In before extractNeighborPC: " << _pointCloud->size() << std::endl;
+    _pointCloud = extractPoints<pcl::PointXYZRGB>(_pointCloud, inliers, false);
+    std::cout << "In after extractNeighborPC: " << _pointCloud->size() << std::endl;
+
     return inliers;
 }
 
@@ -438,7 +425,7 @@ pcl::PointIndices concatenateClusters(
 }
 
 std::vector<pcl::PointIndices> extractClusters(
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _pointCloud,
     float _threshold,
     int _minPoints)
 {
@@ -459,14 +446,14 @@ std::vector<pcl::PointIndices> extractClusters(
 
     if (cluster_indices.size() > 0)
     {
-        extractPoints(*_pointCloud, *_pointCloud, concatenateClusters(cluster_indices), false);
+        _pointCloud = extractPoints<pcl::PointXYZRGB>(_pointCloud, concatenateClusters(cluster_indices), false);
     }
 
     return cluster_indices;
 }
 
 pcl::PointIndices extractBiggestSegment(
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _pointCloud,
     std::vector<pcl::PointIndices> _segment_indices)
 {
     int largest_cluster_index = -1;
@@ -485,7 +472,7 @@ pcl::PointIndices extractBiggestSegment(
     if (largest_cluster_index != -1)
     {
         inliers = _segment_indices[largest_cluster_index];
-        extractPoints(*_pointCloud, *_pointCloud, inliers, false);
+        _pointCloud = extractPoints<pcl::PointXYZRGB>(_pointCloud, inliers, false);
         std::cout << "The point cloud has " << std::to_string(_segment_indices.size()) << " clusters." << std::endl;
     }
     else
@@ -497,7 +484,7 @@ pcl::PointIndices extractBiggestSegment(
 }
 
 pcl::PointIndices extractBiggestCluster(
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud,
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _pointCloud,
     const float _threshold,
     const int _minPoints)
 {
@@ -744,7 +731,7 @@ cv::Mat visualizeMarkers(const cv::Mat& _markers)
 }
 
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
-    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _cloud,
     const float _leafSize,
     const float _radius,
     const float _threshFg,
@@ -960,7 +947,7 @@ pcl::PointIndices findBoundary(
 }
 
 void extractBoundary(
-    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _cloud,
     const pcl::PointCloud<pcl::PointNormal>::Ptr _normalsCloud,
     const int _searchNeighbors)
 {
@@ -970,7 +957,7 @@ void extractBoundary(
         _searchNeighbors
     );
 
-    extractPoints(*_cloud, *_cloud, idx, false);
+    _cloud = extractPoints<pcl::PointXYZRGB>(_cloud, idx, false);
 }
 
 pcl::PointIndices findRadiusBoundary(
@@ -1006,7 +993,7 @@ pcl::PointIndices findRadiusBoundary(
 }
 
 void extractRadiusBoundary(
-    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _cloud,
     const pcl::PointIndices _boundaryIdx,
     const float _searchRadius)
 {
@@ -1016,7 +1003,7 @@ void extractRadiusBoundary(
         _searchRadius
     );
 
-    extractPoints(*_cloud, *_cloud, idx, false);
+    _cloud = extractPoints<pcl::PointXYZRGB>(_cloud, idx, false);
 }
 
 pcl::PointIndices findSurface(
@@ -1037,7 +1024,7 @@ pcl::PointIndices findSurface(
 }
 
 void extractSurface(
-    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _cloud,
     const float _leafSize)
 {
     pcl::PointIndices idx = findSurface(
@@ -1045,7 +1032,7 @@ void extractSurface(
         _leafSize
     );
 
-    extractPoints(*_cloud, *_cloud, idx, false);
+    _cloud = extractPoints<pcl::PointXYZRGB>(_cloud, idx, false);
 }
 
 float computeDensity(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud, float _radius)
@@ -1301,14 +1288,14 @@ pcl::PointIndices findLocalExtremums(
 }
 
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractLocalExtremums(
-    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _cloud,
     const float _radius,
     const bool _isMin)
 {
     pcl::PointIndices idx = findLocalExtremums(_cloud, _radius, _isMin);
 
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr localExtremums(new pcl::PointCloud<pcl::PointXYZRGB>);
-    extractPoints(*_cloud, *localExtremums, idx, false);
+    localExtremums = extractPoints<pcl::PointXYZRGB>(_cloud, idx, false);
     return localExtremums;
 }
 
