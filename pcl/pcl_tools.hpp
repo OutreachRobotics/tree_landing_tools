@@ -105,10 +105,6 @@ typename pcl::PointCloud<PointT>::Ptr extractPoints(
     // Filter into the new cloud (dereference the pointer)
     extract.filter(*outputCloud);
 
-    std::cout << "_cloud->size(): " << _cloud->size() << std::endl;
-    std::cout << "outputCloud->size(): " << outputCloud->size() << std::endl;
-    std::cout << "_indices.indices.size(): " << _indices.indices.size() << std::endl;
-
     return outputCloud;
 };
 

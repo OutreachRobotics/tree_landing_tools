@@ -394,9 +394,7 @@ pcl::PointIndices extractNeighborPC(
         inliers.indices = pointIdxRadiusSearch;
     }
 
-    std::cout << "In before extractNeighborPC: " << _pointCloud->size() << std::endl;
     _pointCloud = extractPoints<pcl::PointXYZRGB>(_pointCloud, inliers, false);
-    std::cout << "In after extractNeighborPC: " << _pointCloud->size() << std::endl;
 
     return inliers;
 }
