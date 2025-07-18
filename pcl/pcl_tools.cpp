@@ -1411,17 +1411,35 @@ bool checkInboundPoints(const pcl::PointXYZRGB _min_pt, const pcl::PointXYZRGB _
     return isPointInBound;
 }
 
-pcl::PointCloud<pcl::PointXYZRGB>::Ptr centerCloud(pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud)
+std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centerClouds(
+    const std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr>& _clouds)
 {
-    Eigen::Vector4f centroid;
-    pcl::compute3DCentroid(*_cloud, centroid);
+    // Create a vector to store the new, centered clouds
+    std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centered_clouds;
 
+    // Return an empty vector if the input is empty
+    if (_clouds.empty() || !_clouds[0]) {
+        return centered_clouds;
+    }
+
+    // 1. Compute the centroid of the first cloud to use as the origin
+    Eigen::Vector4f centroid;
+    pcl::compute3DCentroid(*_clouds[0], centroid);
+
+    // 2. Create the transformation matrix to move the centroid to (0,0,0)
     Eigen::Affine3f transform = Eigen::Affine3f::Identity();
     transform.translation() << -centroid[0], -centroid[1], -centroid[2];
 
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_centered(new pcl::PointCloud<pcl::PointXYZRGB>);
-    pcl::transformPointCloud(*_cloud, *cloud_centered, transform);
-    return cloud_centered;
+    // 3. Loop through each cloud, apply the same transform, and store the result
+    for (const auto& cloud : _clouds) {
+        auto centered_cloud = pcl::make_shared<pcl::PointCloud<pcl::PointXYZRGB>>();
+        if (cloud) { // Ensure the cloud pointer is valid
+            pcl::transformPointCloud(*cloud, *centered_cloud, transform);
+        }
+        centered_clouds.push_back(centered_cloud);
+    }
+
+    return centered_clouds;
 }
 
 void addCloud2View(pcl::visualization::PCLVisualizer::Ptr _viewer, pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud, const std::string& _name)
@@ -1433,12 +1451,12 @@ void addCloud2View(pcl::visualization::PCLVisualizer::Ptr _viewer, pcl::PointClo
 
 void view(const std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> _clouds)
 {
-    pcl::visualization::PCLVisualizer::Ptr viewer(new pcl::visualization::PCLVisualizer ("3D Viewer"));
+    pcl::visualization::PCLVisualizer::Ptr viewer(new pcl::visualization::PCLVisualizer("3D Viewer"));
     viewer->setBackgroundColor(0, 0, 0);
+    std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centered_clouds = centerClouds(_clouds);
     int i = 0;
-    for (pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud : _clouds) {
-        pcl::PointCloud<pcl::PointXYZRGB>::Ptr centeredCloud = centerCloud(cloud);
-        addCloud2View(viewer, centeredCloud, "cloud" + std::to_string(i));
+    for (pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud : centered_clouds) {
+        addCloud2View(viewer, cloud, "cloud" + std::to_string(i));
         ++i;
     }
     viewer->addCoordinateSystem(1.0);
