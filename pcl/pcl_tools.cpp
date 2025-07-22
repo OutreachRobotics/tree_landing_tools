@@ -728,6 +728,27 @@ cv::Mat visualizeMarkers(const cv::Mat& _markers)
     return markers_viz;
 }
 
+cv::Mat computeGradients(cv::Mat _depthMap, int kernel_size = 5) {
+    // 1. Calculate derivatives in x and y directions
+    cv::Mat grad_x, grad_y;
+    cv::Sobel(_depthMap, grad_x, CV_32F, 1, 0, kernel_size);
+    cv::Sobel(_depthMap, grad_y, CV_32F, 0, 1, kernel_size);
+
+    // 2. Calculate the magnitude of the gradient
+    cv::Mat gradient_magnitude;
+    cv::magnitude(grad_x, grad_y, gradient_magnitude);
+
+    // 3. Normalize to an 8-bit image for watershed input
+    cv::Mat gradient_8u;
+    cv::normalize(gradient_magnitude, gradient_8u, 0, 255, cv::NORM_MINMAX, CV_8UC1);
+
+    // 4. Convert to a 3-channel image, which watershed expects
+    cv::Mat gradient_for_watershed;
+    cv::cvtColor(gradient_8u, gradient_for_watershed, cv::COLOR_GRAY2BGR);
+
+    return gradient_for_watershed;
+}
+
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _cloud,
     const float _leafSize,
@@ -740,20 +761,6 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
 
     DepthMapData depthMapData = computeDepthMap( _cloud, _leafSize, _kernelSize);
 
-    // 1. NORMALIZE AND COLORIZE THE DEPTH MAP
-    // Convert the 32F depth map to a visual 8U format
-    cv::Mat norm_depth;
-    cv::normalize(depthMapData.depthMap, norm_depth, 0, 255, cv::NORM_MINMAX, CV_8UC1);
-
-    // Create a 3-channel color image for the watershed algorithm
-    cv::Mat color_depth;
-    cv::applyColorMap(norm_depth, color_depth, cv::COLORMAP_JET);
-
-    // 2. CREATE MARKERS AUTOMATICALLY
-    // Threshold to get a binary image of potential objects
-    // cv::Mat binary;
-    // cv::threshold(norm_depth, binary, 0, 255, cv::THRESH_BINARY | cv::THRESH_OTSU);
-
     // Define "sure background" as all pixels with 0 value in the original depth map
     cv::Mat sure_bg;
     cv::compare(depthMapData.depthMap, 0, sure_bg, cv::CMP_EQ);
@@ -761,6 +768,26 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
     // Create an inverted version of the background mask
     cv::Mat foreground_mask;
     cv::bitwise_not(sure_bg, foreground_mask);
+
+    // 1. NORMALIZE AND COLORIZE THE DEPTH MAP
+    // Convert the 32F depth map to a visual 8U format
+    cv::Mat norm_depth;
+    cv::normalize(depthMapData.depthMap, norm_depth, 0, 255, cv::NORM_MINMAX, CV_8UC1, foreground_mask);
+
+    // 2. Invert the normalized image
+    cv::Mat inverted_norm_depth;
+    cv::bitwise_not(norm_depth, inverted_norm_depth);
+
+    // 2. CREATE MARKERS AUTOMATICALLY
+    // Threshold to get a binary image of potential objects
+    // cv::Mat binary;
+    // cv::threshold(norm_depth, binary, 0, 255, cv::THRESH_BINARY | cv::THRESH_OTSU);
+
+    cv::Mat depthGradients = computeGradients(inverted_norm_depth, 5);
+
+    // Create a 3-channel color image for the watershed algorithm
+    cv::Mat color_depth;
+    cv::cvtColor(inverted_norm_depth, color_depth, cv::COLOR_GRAY2BGR);
 
     // --- Method 1: Get seeds from Distance Transform ---
     cv::Mat dist_transform;
@@ -794,7 +821,6 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
         }
     }
 
-
     // --- FINAL STEP: Combine both masks ---
     cv::Mat sure_fg; // This will be your final sure_fg mask
     cv::bitwise_or(sure_fg_dist, sure_fg_extremums, sure_fg);
@@ -817,7 +843,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
     markers.setTo(0, unknown == 255);
 
     // 4. APPLY WATERSHED
-    cv::watershed(color_depth, markers);
+    cv::watershed(depthGradients, markers);
 
     std::vector<pcl::PointIndices> clusters = mapPointsToSegments(_cloud, markers, depthMapData);
     extractBiggestSegment(_cloud, clusters);
@@ -829,9 +855,16 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
         // Blend the result with the original color depth map
         cv::Mat wshed = markers_viz * 0.5 + color_depth * 0.5;
 
+        cv::Mat color_depth_viz;
+        cv::Mat depthGradientsViz;
+
+        cv::applyColorMap(color_depth, color_depth_viz, cv::COLORMAP_JET);
+        cv::applyColorMap(depthGradients, depthGradientsViz, cv::COLORMAP_JET);
+
         // You can also show intermediate steps
         cv::imshow("Depth Map", norm_depth);
-        cv::imshow("Color Depth Map", color_depth);
+        cv::imshow("Color Depth Map", color_depth_viz);
+        cv::imshow("Color gradients", depthGradientsViz);
         cv::imshow("Sure Foreground dist", sure_fg_dist);
         cv::imshow("Sure Foreground extremums", sure_fg_extremums);
         cv::imshow("Sure Foreground", sure_fg);
