@@ -569,7 +569,7 @@ std::map<std::pair<int, int>, int> computeGrid(
 DepthMapData computeDepthMap(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
     const float _leafSize,
-    const int _kernelSize)
+    const int _medianKernelSize)
 {
     std::map<std::pair<int, int>, int> grid = computeGrid(_cloud, _leafSize);
 
@@ -608,7 +608,7 @@ DepthMapData computeDepthMap(
 
     // 4. Create a matrix to store the filtered result
     cv::Mat filtered_depth_map;
-    cv::medianBlur(depth_map, filtered_depth_map, _kernelSize);
+    cv::medianBlur(depth_map, filtered_depth_map, _medianKernelSize);
     return {filtered_depth_map, grid, min_x, min_y, _leafSize};
 }
 
@@ -754,12 +754,13 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
     const float _leafSize,
     const float _radius,
     const float _threshFg,
-    const int _kernelSize,
+    const int _medianKernelSize,
+    const int _gradientKernelSize,
     const bool _shouldView)
 {
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr outputCloud(new pcl::PointCloud<pcl::PointXYZRGB>(*_cloud));
 
-    DepthMapData depthMapData = computeDepthMap( _cloud, _leafSize, _kernelSize);
+    DepthMapData depthMapData = computeDepthMap( _cloud, _leafSize, _medianKernelSize);
 
     // Define "sure background" as all pixels with 0 value in the original depth map
     cv::Mat sure_bg;
@@ -783,7 +784,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
     // cv::Mat binary;
     // cv::threshold(norm_depth, binary, 0, 255, cv::THRESH_BINARY | cv::THRESH_OTSU);
 
-    cv::Mat depthGradients = computeGradients(inverted_norm_depth, 5);
+    cv::Mat depthGradients = computeGradients(inverted_norm_depth, _gradientKernelSize);
 
     // Create a 3-channel color image for the watershed algorithm
     cv::Mat color_depth;

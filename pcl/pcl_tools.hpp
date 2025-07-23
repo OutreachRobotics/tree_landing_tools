@@ -227,7 +227,8 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
     const float _leafSize = 0.1,
     const float _radius = 1.0,
     const float _threshFg = 0.5,
-    const int _kernelSize = 3,
+    const int _medianKernelSize = 3,
+    const int _gradientKernelSize = 3,
     const bool _shouldView = false
 );
 
