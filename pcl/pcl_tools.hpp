@@ -348,7 +348,7 @@ void colorSegmentedPoints(
 );
 
 // Data viz
-bool checkInboundPoints(const pcl::PointXYZRGB min_pt, const pcl::PointXYZRGB max_pt, float& x, float& y);
+bool checkInboundPoints(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _ogCloud, const std::vector<float>& landing);
 
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr centerCloud(pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud);
 

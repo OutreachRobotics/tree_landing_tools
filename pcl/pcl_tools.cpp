@@ -1143,51 +1143,81 @@ pcl::PrincipalCurvatures computeCurvature(
     const pcl::PointXYZRGB& _point,
     const float _radius)
 {
-    // Step 1: Create a copy of the input cloud and add the point
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_copy(new pcl::PointCloud<pcl::PointXYZRGB>(*_cloud));
-    cloud_copy->push_back(_point);
+    if (_cloud->empty()) {
+        // throw std::runtime_error("Input cloud for computeCurvature cannot be empty.");
+        std::cout << "Error: Input cloud for computeCurvature cannot be empty." << std::endl;
+        return pcl::PrincipalCurvatures();
+    }
 
     // Step 2: Create a KdTree and set the input cloud
     pcl::search::KdTree<pcl::PointXYZRGB>::Ptr kdtree(new pcl::search::KdTree<pcl::PointXYZRGB>);
-    kdtree->setInputCloud(cloud_copy);
+    kdtree->setInputCloud(_cloud);
+
+    std::vector<int> neighbor_indices;
+    std::vector<float> neighbor_sq_dists;
+
+    // --- ROBUSTNESS FIX ---
+    // Add a check to ensure enough neighbors are found. Curvature estimation is unstable
+    // with too few points and can cause the program to crash.
+    if (kdtree->radiusSearch(_point, _radius, neighbor_indices, neighbor_sq_dists) < 8)
+    {
+        std::cout << "Error: Not enough points to compute curvature." << std::endl;
+        // throw std::runtime_error("No curvature computed for the specified point.");
+        return pcl::PrincipalCurvatures();
+    }
+
+    // Instead of copying the whole cloud, create a small cloud containing only the neighbors.
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr neighborhood(new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::copyPointCloud(*_cloud, neighbor_indices, *neighborhood);
+
+    // Add the query point itself to the neighborhood cloud.
+    neighborhood->push_back(_point);
+    const int target_idx = neighborhood->size() - 1;
 
     // Step 3: Compute normals for the whole cloud
-    pcl::PointCloud<pcl::Normal>::Ptr normals = computeNormalsRad(cloud_copy, _radius);
+    pcl::PointCloud<pcl::Normal>::Ptr normals = computeNormalsRad(neighborhood, _radius);
 
     // Step 4: Compute principal curvatures for the whole cloud
     pcl::PrincipalCurvaturesEstimation<pcl::PointXYZRGB, pcl::Normal, pcl::PrincipalCurvatures> ce;
-    ce.setInputCloud(cloud_copy);
+    ce.setInputCloud(neighborhood);
     ce.setInputNormals(normals);
-    ce.setSearchMethod(kdtree);
+    // ce.setSearchMethod(kdtree);
     ce.setRadiusSearch(_radius);
 
     pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr curvatures(new pcl::PointCloud<pcl::PrincipalCurvatures>);
     ce.compute(*curvatures);
 
     // Step 5: Print out results
-    int lastIdx = curvatures->size() - 1;
-    const auto& curvature = curvatures->points[lastIdx];
+    const auto& curvature = curvatures->points[target_idx];
     float pc1 = curvature.pc1;
     float pc2 = curvature.pc2;
     float mean_curvature = (pc1 + pc2) / 2.0f;
     float gaussian_curvature = pc1 * pc2;
 
-    std::cout << "Point " << lastIdx << ": Principal Curvatures: " << pc1 << ", " << pc2
+    std::cout << "Point " << target_idx << ": Principal Curvatures: " << pc1 << ", " << pc2
                 << ", Mean Curvature: " << mean_curvature
                 << ", Gaussian Curvature: " << gaussian_curvature << std::endl;
     std::cout << "  Principal Directions: (" << curvature.principal_curvature_x << ", "
-                << curvature.principal_curvature_y << ", " << curvature.principal_curvature_z << ")\n";
+                << curvature.principal_curvature_y << ", " << curvature.principal_curvature_z << ")" << std::endl;
 
     // Step 6: Return the curvature of the target point (last point in the cloud)
     if (!curvatures->empty()) {
-        return curvatures->points[lastIdx]; // The last point corresponds to the added point
+        return curvatures->points[target_idx]; // The last point corresponds to the added point
     } else {
-        throw std::runtime_error("No curvature computed for the specified point.");
+        std::cout << "Error: No curvature computed for the specified point." << std::endl;
+        // throw std::runtime_error("No curvature computed for the specified point.");
+        return pcl::PrincipalCurvatures();
     }
 }
 
 Eigen::Vector4f computePlane(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud)
 {
+    if (_cloud->empty()) {
+        // throw std::runtime_error("Input cloud for computeCurvature cannot be empty.");
+        std::cout << "Error: Input cloud for computePlane cannot be empty." << std::endl;
+        return Eigen::Vector4f();
+    }
+
     // Compute the centroid of the point cloud
     Eigen::Vector4f centroid;
     pcl::compute3DCentroid(*_cloud, centroid);
@@ -1418,27 +1448,35 @@ void colorSegmentedPoints(
     }
 }
 
-bool checkInboundPoints(const pcl::PointXYZRGB _min_pt, const pcl::PointXYZRGB _max_pt, float& _x, float& _y)
+bool checkInboundPoints(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _ogCloud, const std::vector<float>& _landing)
 {
+    pcl::PointXYZRGB min_pt, max_pt;
+    pcl::getMinMax3D(*_ogCloud, min_pt, max_pt);
+
     bool isPointInBound = true;
     // Bounding box dimensions
-    float width = _max_pt.x - _min_pt.x;
-    float height = _max_pt.y - _min_pt.y;
-    float depth = _max_pt.z - _min_pt.z;
-    float c_x = width / 2.0 + _min_pt.x;
-    float c_y = height / 2.0 + _min_pt.y;
+    float width = max_pt.x - min_pt.x;
+    float height = max_pt.y - min_pt.y;
+    float depth = max_pt.z - min_pt.z;
+    float c_x = width / 2.0 + min_pt.x;
+    float c_y = height / 2.0 + min_pt.y;
 
     // std::cout << "\n" << "AABB Dimensions: "
     //         << width << " (W) x "
     //         << height << " (H) x "
     //         << depth << " (D)\n\n";
 
-    if(_x < _min_pt.x || _x > _max_pt.x){
-        std::cout << "\n\nWARNING: Target point out of bound: " << _min_pt.x << " < " << _x << " < " << _max_pt.x << "\n\n";
+    if(_landing[0] < min_pt.x || _landing[0] > max_pt.x){
+        std::cout << "\n\nWARNING: Target point out of bound in x: " << min_pt.x << " < " << _landing[0] << " < " << max_pt.x << "\n\n";
         isPointInBound = false;
     }
-    if(_y < _min_pt.y || _y > _max_pt.y){
-        std::cout << "\n\nWARNING: Target point out of bound: " << _min_pt.y << " < " << _y << " < " << _max_pt.y << "\n\n";
+    if(_landing[1] < min_pt.y || _landing[1] > max_pt.y){
+        std::cout << "\n\nWARNING: Target point out of bound in y: " << min_pt.y << " < " << _landing[1] << " < " << max_pt.y << "\n\n";
+        isPointInBound = false;
+    }
+
+    if(_landing[2] < min_pt.z || _landing[2] > max_pt.z){
+        std::cout << "\n\nWARNING: Target point out of bound in z: " << min_pt.z << " < " << _landing[2] << " < " << max_pt.z << "\n\n";
         isPointInBound = false;
     }
 
