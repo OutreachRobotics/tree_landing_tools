@@ -211,8 +211,9 @@ std::vector<pcl::PointIndices> extractClusters(
 
 pcl::PointIndices extractBiggestCluster(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr& pointCloud,
-    float threshold,
-    int minPoints=10
+    const float threshold,
+    const double _size_ratio=1.0,
+    const int minPoints=10
 );
 
 pcl::PointCloud <pcl::PointXYZRGB>::Ptr computeSegmentation(

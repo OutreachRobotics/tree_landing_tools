@@ -452,38 +452,56 @@ std::vector<pcl::PointIndices> extractClusters(
 
 pcl::PointIndices extractBiggestSegment(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _pointCloud,
-    std::vector<pcl::PointIndices> _segment_indices)
+    const std::vector<pcl::PointIndices> _segment_indices,
+    const double _size_ratio=1.0)
 {
-    int largest_cluster_index = -1;
-    int largest_cluster_size = 0;
-    for (size_t i = 0; i < _segment_indices.size(); ++i)
+    size_t max_cluster_size = 0;
+    for (const auto& segment : _segment_indices)
     {
-        int cluster_size = _segment_indices[i].indices.size();
-        if (cluster_size > largest_cluster_size)
+        if (segment.indices.size() > max_cluster_size)
         {
-            largest_cluster_index = i;
-            largest_cluster_size = cluster_size;
+            max_cluster_size = segment.indices.size();
         }
     }
 
-    pcl::PointIndices inliers;
-    if (largest_cluster_index != -1)
+    const size_t size_threshold = static_cast<size_t>(max_cluster_size * _size_ratio);
+    std::cout << "Size threshold: " << size_threshold << std::endl;
+
+    pcl::PointIndices combined_inliers;
+    size_t qualifying_clusters_count = 0;
+    for (const auto& segment : _segment_indices)
     {
-        inliers = _segment_indices[largest_cluster_index];
-        _pointCloud = extractPoints<pcl::PointXYZRGB>(_pointCloud, inliers, false);
+        std::cout << "Segment size: " << segment.indices.size() << std::endl;
+        if (segment.indices.size() >= size_threshold)
+        {
+            // Add the indices of this qualifying cluster to our combined list
+            combined_inliers.indices.insert(
+                combined_inliers.indices.end(),
+                segment.indices.begin(),
+                segment.indices.end()
+            );
+            qualifying_clusters_count++;
+        }
+    }
+
+    if(qualifying_clusters_count > 0)
+    {
+        _pointCloud = extractPoints<pcl::PointXYZRGB>(_pointCloud, combined_inliers, false);
         std::cout << "The point cloud has " << std::to_string(_segment_indices.size()) << " clusters." << std::endl;
+        std::cout << "And " << qualifying_clusters_count << " clusters were kept." << std::endl;
     }
     else
     {
         std::cout << "No clusters found in the point cloud." << std::endl;
     } 
 
-    return inliers;
+    return combined_inliers;
 }
 
 pcl::PointIndices extractBiggestCluster(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _pointCloud,
     const float _threshold,
+    const double _size_ratio,
     const int _minPoints)
 {
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr tempPointCloud(new pcl::PointCloud<pcl::PointXYZRGB>(*_pointCloud));
@@ -495,7 +513,7 @@ pcl::PointIndices extractBiggestCluster(
         _minPoints
     );
 
-    return extractBiggestSegment(_pointCloud, cluster_indices);
+    return extractBiggestSegment(_pointCloud, cluster_indices, _size_ratio);
 }
 
 pcl::PointCloud <pcl::PointXYZRGB>::Ptr computeSegmentation(
