@@ -856,16 +856,24 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
     cv::Mat dist_map;
     cv::distanceTransform(inverted_extremums, dist_map, cv::DIST_L2, 5);
 
+    cv::Mat ellipse_kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3, 3));
+    cv::Mat ridges;
+    cv::morphologyEx(dist_map, ridges, cv::MORPH_TOPHAT, ellipse_kernel);
+
+    // 2. Add the ridges back to the original map with a large multiplier.
+    // The multiplier '10.0' makes the ridges much more significant. Tune as needed.
+    cv::Mat landscape = dist_map + ridges * 10.0;
+
     cv::Mat flat_basins_mask = dist_map < 3;
-    dist_map.setTo(0, flat_basins_mask);
+    landscape.setTo(0, flat_basins_mask);
 
     double minVal, maxVal;
-    cv::minMaxLoc(dist_map, &minVal, &maxVal);
-    dist_map.setTo(maxVal, sure_bg);
+    cv::minMaxLoc(landscape, &minVal, &maxVal);
+    landscape.setTo(maxVal, sure_bg);
 
     // 4. Prepare for watershed. NO INVERSION STEP IS NEEDED.
     cv::Mat dist_map_norm, bgr_dist_map;
-    cv::normalize(dist_map, dist_map_norm, 0, 255, cv::NORM_MINMAX, CV_8U);
+    cv::normalize(landscape, dist_map_norm, 0, 255, cv::NORM_MINMAX, CV_8U);
     cv::cvtColor(dist_map_norm, bgr_dist_map, cv::COLOR_GRAY2BGR);
 
     // 5. Label the original markers and run the watershed.
@@ -876,8 +884,8 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
 
     cv::Mat sure_fg;
     int erosion_iterations = 1;
-    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3, 3));
-    cv::erode(separated_blobs, sure_fg, kernel, cv::Point(-1,-1), erosion_iterations);
+    cv::Mat erode_kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(5, 5));
+    cv::erode(separated_blobs, sure_fg, erode_kernel, cv::Point(-1,-1), erosion_iterations);
     cv::bitwise_or(sure_fg_extremums, sure_fg, sure_fg);
 
     cv::Mat markers;
