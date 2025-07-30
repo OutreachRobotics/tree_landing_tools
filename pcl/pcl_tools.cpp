@@ -422,7 +422,7 @@ pcl::PointIndices concatenateClusters(
     return combined;
 }
 
-std::vector<pcl::PointIndices> extractClusters(
+std::vector<pcl::PointIndices> computeClusters(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _pointCloud,
     float _threshold,
     int _minPoints)
@@ -507,7 +507,7 @@ pcl::PointIndices extractBiggestCluster(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr tempPointCloud(new pcl::PointCloud<pcl::PointXYZRGB>(*_pointCloud));
 
     // Cluster extraction
-    std::vector<pcl::PointIndices> cluster_indices = extractClusters(
+    std::vector<pcl::PointIndices> cluster_indices = computeClusters(
         tempPointCloud,
         _threshold,
         _minPoints
@@ -847,8 +847,7 @@ cv::Mat growSeedsWithinBoundaries(
 
 void fusePacManBlobs(
     cv::Mat& _markers,
-    const double _solidity_threshold = 0.5,
-    const double _percentage_threshold = 0.33)
+    const double _solidity_threshold = 0.9)
 {
     // --- FIX 1: Use a new 'labels' matrix to avoid overwriting input ---
     // We get stats from the binary version, but keep original labels for later.
@@ -895,26 +894,50 @@ void fusePacManBlobs(
             for (int eaten_idx = 1; eaten_idx < num_labels; ++eaten_idx) {
                 if (eater_idx == eaten_idx) continue;
 
+                // cv::Point2d eaten_centroid(centroids.at<double>(eaten_idx, 0), centroids.at<double>(eaten_idx, 1));
+                // if (!hulls[eater_idx].empty() && !contours[eaten_idx].empty()) {
+                //     int inside_points_count = 0;
+                //     // Loop through each point of the "eaten" blob's contour.
+                //     for (const cv::Point& pt : contours[eaten_idx]) {
+                //         if (cv::pointPolygonTest(hulls[eater_idx], pt, false) >= 0) {
+                //             inside_points_count++;
+                //         }
+                //     }
+
+                //     // Check if a significant percentage of points are inside.
+                //     double percentage_inside = static_cast<double>(inside_points_count) / contours[eaten_idx].size();
+                //     std::cout << "potential eaten percentage: " << percentage_inside << std::endl;
+                //     if (percentage_inside > _percentage_threshold) {
+                //         std::cout << "eaten percentage: " << percentage_inside << std::endl;
+
+                //         int eater_orig_label = _markers.at<int>(safe_points[eater_idx]);
+                //         int eaten_orig_label = _markers.at<int>(safe_points[eaten_idx]);
+
+                //         std::cout << "Testing blob " << eaten_orig_label << " into blob " << eater_orig_label << std::endl;
+                //         if (eater_orig_label > 1 && eaten_orig_label > 1 && eater_orig_label != eaten_orig_label) {
+                //             std::cout << "Fusing blob " << eaten_orig_label << " into blob " << eater_orig_label << std::endl;
+                //             remap_table[eaten_orig_label] = eater_orig_label;
+                //         }
+                //     }
+                // }
+
+                // Get the centroid of the potential "eater" blob.
+                cv::Point2d eater_centroid(centroids.at<double>(eater_idx, 0), centroids.at<double>(eater_idx, 1));
                 cv::Point2d eaten_centroid(centroids.at<double>(eaten_idx, 0), centroids.at<double>(eaten_idx, 1));
-                if (!hulls[eater_idx].empty() && !contours[eaten_idx].empty()) {
-                    int inside_points_count = 0;
-                    // Loop through each point of the "eaten" blob's contour.
-                    for (const cv::Point& pt : contours[eaten_idx]) {
-                        if (cv::pointPolygonTest(hulls[eater_idx], pt, false) >= 0) {
-                            inside_points_count++;
-                        }
-                    }
-
-                    // Check if a significant percentage of points are inside.
-                    double percentage_inside = static_cast<double>(inside_points_count) / contours[eaten_idx].size();
-                    std::cout << "potential eaten percentage: " << percentage_inside << std::endl;
-                    if (percentage_inside > _percentage_threshold) {
-                        std::cout << "eaten percentage: " << percentage_inside << std::endl;
-
+                std::cout << "eater centroid: " << eater_centroid << std::endl;
+                std::cout << "eaten centroid: " << eaten_centroid << std::endl;
+                
+                // Check if the eaten's hull is valid.
+                if (!hulls[eater_idx].empty() && !hulls[eaten_idx].empty()) {
+                    // Test if the eaten blob's centroid is inside or on the eater's convex hull.
+                    double distance_nr = cv::pointPolygonTest(hulls[eaten_idx], eater_centroid, true);
+                    double distance_rn = cv::pointPolygonTest(hulls[eater_idx], eaten_centroid, true);
+                    std::cout << "Distance from eater centroid to eaten hull: " << distance_nr << std::endl;
+                    std::cout << "Distance from eaten centroid to eater hull: " << distance_rn << std::endl;
+                    if (distance_nr >= -1.0 || distance_rn >= -1.0) {
                         int eater_orig_label = _markers.at<int>(safe_points[eater_idx]);
                         int eaten_orig_label = _markers.at<int>(safe_points[eaten_idx]);
 
-                        std::cout << "Testing blob " << eaten_orig_label << " into blob " << eater_orig_label << std::endl;
                         if (eater_orig_label > 1 && eaten_orig_label > 1 && eater_orig_label != eaten_orig_label) {
                             std::cout << "Fusing blob " << eaten_orig_label << " into blob " << eater_orig_label << std::endl;
                             remap_table[eaten_orig_label] = eater_orig_label;
@@ -967,20 +990,18 @@ void fusePacManBlobs(
     }
 }
 
-pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
+std::vector<pcl::PointIndices> segmentWatershed(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _cloud,
     const float _leafSize,
     const float _radius,
-    const float _threshFg,
     const int _medianKernelSize,
-    const int _gradientKernelSize,
+    const int _tophat_kernel,
+    const float _tophat_amplification,
+    const float _pacman_solidity,
     const bool _shouldView)
 {
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr smoothCloud(new pcl::PointCloud<pcl::PointXYZRGB>(*_cloud));
     smoothPC(smoothCloud, 2.0*_radius);
-    
-    // pcl::PointCloud<pcl::PointXYZRGB>::Ptr outputCloud(new pcl::PointCloud<pcl::PointXYZRGB>(*_cloud));
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr outputCloud(new pcl::PointCloud<pcl::PointXYZRGB>(*smoothCloud));
 
     DepthMapData depthMapData = computeDepthMap(_cloud, _leafSize, _medianKernelSize);
     DepthMapData smoothDepthMapData = computeDepthMap(smoothCloud, _leafSize, _medianKernelSize);
@@ -992,8 +1013,6 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
     // Create an inverted version of the background mask
     cv::Mat foreground_mask;
     cv::bitwise_not(sure_bg, foreground_mask);
-
-    // cv::Mat depthGradients = computeGradients(inverted_norm_depth, _gradientKernelSize);
 
     // --- Method 2: Get seeds from 3D Local Extrema ---
     pcl::PointIndices maximumIdx = pcl_tools::findLocalExtremums(smoothCloud, _radius, false);
@@ -1028,7 +1047,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
     cv::Mat flat_basins_mask = dist_map < 2;
     dist_map.setTo(0, flat_basins_mask);
 
-    cv::Mat landscape = computeTopHat(dist_map, 10.0, 7);
+    cv::Mat landscape = computeTopHat(dist_map, _tophat_amplification, _tophat_kernel);
 
     // 4. Prepare for watershed. NO INVERSION STEP IS NEEDED.
     cv::Mat dist_map_norm;
@@ -1051,7 +1070,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
     cv::Mat inverted_depth;
     inverted_depth = invertFloatMap(smoothDepthMapData.depthMap);
 
-    cv::Mat hat_inverted_depth = computeTopHat(inverted_depth, 10.0, 9);
+    cv::Mat hat_inverted_depth = computeTopHat(inverted_depth, _tophat_amplification, _tophat_kernel);
 
     cv::Mat inverted_norm_depth;
     cv::normalize(hat_inverted_depth, inverted_norm_depth, 0, 255, cv::NORM_MINMAX, CV_8UC1, foreground_mask);
@@ -1063,10 +1082,10 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
 
     cv::Mat markers;
     watershed_markers(color_depth, sure_bg, sure_fg, markers);
-    fusePacManBlobs(markers, 0.5, 0.33);
+    fusePacManBlobs(markers, _pacman_solidity);
 
     std::vector<pcl::PointIndices> clusters = mapPointsToSegments(_cloud, markers, smoothDepthMapData);
-    extractBiggestSegment(_cloud, clusters);
+    // extractBiggestSegment(_cloud, clusters);
 
     if(_shouldView){
         // 5. VISUALIZE THE RESULT
@@ -1106,13 +1125,89 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
         cv::waitKey(0);
 
         std::vector<pcl::RGB> colorTable = generatePclColors(clusters.size());
-        colorSegmentedPoints(outputCloud, pcl::RGB(255,255,255));
+        colorSegmentedPoints(_cloud, pcl::RGB(255,255,255));
         for(size_t i=0; i < clusters.size(); ++i) {
-            colorSegmentedPoints(outputCloud, clusters[i], colorTable[i]);
+            colorSegmentedPoints(_cloud, clusters[i], colorTable[i]);
         }
     }
     
-    return outputCloud;
+    return clusters;
+}
+
+std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> extractClusters(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
+    const std::vector<pcl::PointIndices>& _clusters)
+{
+    std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> extracted_clusters;
+    extracted_clusters.reserve(_clusters.size());
+
+    for(const auto& cluster : _clusters)
+    {
+        extracted_clusters.emplace_back(extractPoints(_cloud, cluster));
+    }
+
+    return extracted_clusters;
+}
+
+double distanceToBoundingBoxSq(const pcl::PointXYZRGB& _point, const pcl_tools::BoundingBox& _bbox, bool is_2d)
+{
+    // First, check if the point is inside the bounding box
+    bool is_inside_2d = (_point.x >= _bbox.min_x && _point.x <= _bbox.max_x &&
+                         _point.y >= _bbox.min_y && _point.y <= _bbox.max_y);
+    
+    bool is_inside_3d = is_inside_2d && (_point.z >= _bbox.min_z && _point.z <= _bbox.max_z);
+
+    bool is_inside = is_2d ? is_inside_2d : is_inside_3d;
+
+    if (is_inside) {
+        // --- If inside, distance is to the centroid ---
+        Eigen::Vector3f diff = _bbox.centroid - _point.getVector3fMap();
+        if (is_2d) {
+            // Ignore the Z component for 2D distance
+            return diff.x() * diff.x() + diff.y() * diff.y();
+        } else {
+            return diff.squaredNorm();
+        }
+    } else {
+        // --- If outside, distance is to the surface (original logic) ---
+        float dx = std::max({0.0f, _bbox.min_x - _point.x, _point.x - _bbox.max_x});
+        float dy = std::max({0.0f, _bbox.min_y - _point.y, _point.y - _bbox.max_y});
+
+        if (is_2d) {
+            return dx * dx + dy * dy;
+        } else {
+            float dz = std::max({0.0f, _bbox.min_z - _point.z, _point.z - _bbox.max_z});
+            return dx * dx + dy * dy + dz * dz;
+        }
+    }
+}
+
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractClosestTree(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
+    const std::vector<pcl::PointIndices>& _clusters,
+    const pcl::PointXYZRGB& _point)
+{
+    std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> extracted_trees = extractClusters(_cloud, _clusters);
+
+    if (extracted_trees.empty()) {
+        return nullptr;
+    }
+
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr closest_tree = nullptr;
+    double min_distance_sq = std::numeric_limits<double>::max();
+
+    for (const auto& tree : extracted_trees)
+    {
+        pcl_tools::BoundingBox bbox = getBB(tree);
+        double dist_sq = distanceToBoundingBoxSq(_point, bbox);
+
+        if (dist_sq < min_distance_sq) {
+            min_distance_sq = dist_sq;
+            closest_tree = tree;
+        }
+    }
+
+    return closest_tree;
 }
 
 void smoothPC(pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud, const float _searchRadius)

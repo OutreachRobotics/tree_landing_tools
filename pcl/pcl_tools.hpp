@@ -87,7 +87,7 @@ template <typename PointT>
 typename pcl::PointCloud<PointT>::Ptr extractPoints(
     typename pcl::PointCloud<PointT>::ConstPtr _cloud,
     const pcl::PointIndices& _indices,
-    bool _isExtractingOutliers)
+    bool _isExtractingOutliers=false)
 {
     // Create the new cloud that will be returned
     typename pcl::PointCloud<PointT>::Ptr outputCloud(new pcl::PointCloud<PointT>);
@@ -203,7 +203,7 @@ pcl::PointIndices extractNeighborPC(
     const float radius
 );
 
-std::vector<pcl::PointIndices> extractClusters(
+std::vector<pcl::PointIndices> computeClusters(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr& pointCloud,
     float threshold,
     int minPoints
@@ -223,14 +223,26 @@ pcl::PointCloud <pcl::PointXYZRGB>::Ptr computeSegmentation(
     const float _threshCurve = 0.03
 );
 
-pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
+std::vector<pcl::PointIndices> segmentWatershed(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _cloud,
     const float _leafSize = 0.1,
     const float _radius = 1.0,
-    const float _threshFg = 0.5,
-    const int _medianKernelSize = 3,
-    const int _gradientKernelSize = 3,
+    const int _medianKernelSize = 5,
+    const int _tophat_kernel = 9,
+    const float _tophat_amplification = 10.0,
+    const float _pacman_solidity = 0.6,
     const bool _shouldView = false
+);
+
+std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> extractClusters(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
+    const std::vector<pcl::PointIndices>& _clusters
+);
+
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractClosestTree(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
+    const std::vector<pcl::PointIndices>& _clusters,
+    const pcl::PointXYZRGB& _point
 );
 
 void removeNoise(
