@@ -779,14 +779,14 @@ void watershed_markers(
     cv::Mat unknown;
     cv::bitwise_not(known_markers, unknown);
 
-    cv::connectedComponents(_sure_fg, _markers);
+    cv::connectedComponents(_sure_fg, _markers, 4);
     _markers = _markers + 1;
     _markers.setTo(1, _sure_bg == 255);
     _markers.setTo(0, unknown == 255);
     cv::watershed(_map, _markers);
 }
 
-cv::Mat computeTophat(const cv::Mat& _map, const float _xFactor = 10.0, const int _kernelSize=5)
+cv::Mat computeTopHat(const cv::Mat& _map, const float _xFactor = 10.0, const int _kernelSize=5)
 {
     cv::Mat ellipse_kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(_kernelSize, _kernelSize));
     cv::Mat ridges;
@@ -797,7 +797,7 @@ cv::Mat computeTophat(const cv::Mat& _map, const float _xFactor = 10.0, const in
     return landscape;
 }
 
-cv::Mat invert_float_map(const cv::Mat& _map)
+cv::Mat invertFloatMap(const cv::Mat& _map)
 {
     cv::Mat inverted_map;
     double min_val, max_val;
@@ -805,6 +805,44 @@ cv::Mat invert_float_map(const cv::Mat& _map)
     cv::subtract(cv::Scalar::all(max_val), _map, inverted_map);
 
     return inverted_map;
+}
+
+cv::Mat growSeedsWithinBoundaries(
+    const cv::Mat& _input_mask,
+    const cv::Mat& _seeds,
+    const int _growth_kernel=7)
+{
+    // 1. Find and label all independent blobs in the input mask.
+    cv::Mat labels;
+    int num_labels = cv::connectedComponents(_input_mask, labels, 4);
+    
+    // Create the final output canvas.
+    cv::Mat final_grown_mask = cv::Mat::zeros(_input_mask.size(), CV_8U);
+
+    if (num_labels < 2) return final_grown_mask;
+
+    // 2. Loop through each blob and process it in complete isolation.
+    for (int i = 1; i < num_labels; ++i) {
+        // --- Isolate Territory ---
+        // Create a mask for the current blob's territory only.
+        cv::Mat parent_mask = (labels == i);
+
+        // --- Isolate the Corresponding Seed ---
+        // Use bitwise_and to find the seed(s) from _seeds that are inside this territory.
+        cv::Mat current_seed;
+        cv::bitwise_and(_seeds, parent_mask, current_seed);
+
+        // --- Grow ---
+        // Grow the isolated seed, but confine it ONLY to its own parent's territory.
+        cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(_growth_kernel, _growth_kernel));
+        cv::dilate(current_seed, current_seed, kernel);
+        cv::bitwise_and(current_seed, parent_mask, current_seed);
+        
+        // 3. Add the result for this blob to the final mask.
+        cv::bitwise_or(final_grown_mask, current_seed, final_grown_mask);
+    }
+
+    return final_grown_mask;
 }
 
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
@@ -817,10 +855,10 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
     const bool _shouldView)
 {
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr smoothCloud(new pcl::PointCloud<pcl::PointXYZRGB>(*_cloud));
-    smoothPC(smoothCloud, _radius);
+    smoothPC(smoothCloud, 2.0*_radius);
     
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr outputCloud(new pcl::PointCloud<pcl::PointXYZRGB>(*_cloud));
-    // pcl::PointCloud<pcl::PointXYZRGB>::Ptr outputCloud(new pcl::PointCloud<pcl::PointXYZRGB>(*smoothCloud));
+    // pcl::PointCloud<pcl::PointXYZRGB>::Ptr outputCloud(new pcl::PointCloud<pcl::PointXYZRGB>(*_cloud));
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr outputCloud(new pcl::PointCloud<pcl::PointXYZRGB>(*smoothCloud));
 
     DepthMapData depthMapData = computeDepthMap(_cloud, _leafSize, _medianKernelSize);
     DepthMapData smoothDepthMapData = computeDepthMap(smoothCloud, _leafSize, _medianKernelSize);
@@ -832,21 +870,6 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
     // Create an inverted version of the background mask
     cv::Mat foreground_mask;
     cv::bitwise_not(sure_bg, foreground_mask);
-
-    cv::Mat inverted_depth;
-    // cv::bitwise_not(smoothDepthMapData.depthMap, inverted_depth);
-    inverted_depth = invert_float_map(smoothDepthMapData.depthMap);
-    cv::Mat inverted_ridges_depth = computeTophat(inverted_depth, 20.0, 5);
-
-    // 1. NORMALIZE AND COLORIZE THE DEPTH MAP
-    // Convert the 32F depth map to a visual 8U format
-    cv::Mat inverted_norm_depth;
-    cv::normalize(inverted_ridges_depth, inverted_norm_depth, 0, 255, cv::NORM_MINMAX, CV_8UC1, foreground_mask);
-    inverted_norm_depth.setTo(255, sure_bg);
-
-    // Create a 3-channel color image for the watershed algorithm
-    cv::Mat color_depth;
-    cv::cvtColor(inverted_norm_depth, color_depth, cv::COLOR_GRAY2BGR);
 
     // cv::Mat depthGradients = computeGradients(inverted_norm_depth, _gradientKernelSize);
 
@@ -880,10 +903,10 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
     cv::Mat dist_map;
     cv::distanceTransform(inverted_extremums, dist_map, cv::DIST_L2, 5);
 
-    cv::Mat landscape = computeTophat(dist_map, 10.0);
+    cv::Mat flat_basins_mask = dist_map < 2;
+    dist_map.setTo(0, flat_basins_mask);
 
-    cv::Mat flat_basins_mask = dist_map < 3;
-    landscape.setTo(0, flat_basins_mask);
+    cv::Mat landscape = computeTopHat(dist_map, 10.0, 7);
 
     // 4. Prepare for watershed. NO INVERSION STEP IS NEEDED.
     cv::Mat dist_map_norm;
@@ -899,16 +922,27 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
 
     cv::Mat separated_blobs = dist_markers > 1;
 
-    cv::Mat sure_fg;
-    int erosion_iterations = 1;
-    cv::Mat erode_kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(5, 5));
-    cv::erode(separated_blobs, sure_fg, erode_kernel, cv::Point(-1,-1), erosion_iterations);
-    cv::bitwise_or(sure_fg_extremums, sure_fg, sure_fg);
+    cv::Mat sure_fg = growSeedsWithinBoundaries(separated_blobs, sure_fg_extremums, 5);
+
+    // 1. NORMALIZE AND COLORIZE THE DEPTH MAP
+    // Convert the 32F depth map to a visual 8U format
+    cv::Mat inverted_depth;
+    inverted_depth = invertFloatMap(smoothDepthMapData.depthMap);
+
+    cv::Mat hat_inverted_depth = computeTopHat(inverted_depth, 10.0, 9);
+
+    cv::Mat inverted_norm_depth;
+    cv::normalize(hat_inverted_depth, inverted_norm_depth, 0, 255, cv::NORM_MINMAX, CV_8UC1, foreground_mask);
+    inverted_norm_depth.setTo(255, sure_bg);
+
+    // Create a 3-channel color image for the watershed algorithm
+    cv::Mat color_depth;
+    cv::cvtColor(inverted_norm_depth, color_depth, cv::COLOR_GRAY2BGR);
 
     cv::Mat markers;
     watershed_markers(color_depth, sure_bg, sure_fg, markers);
 
-    std::vector<pcl::PointIndices> clusters = mapPointsToSegments(_cloud, markers, depthMapData);
+    std::vector<pcl::PointIndices> clusters = mapPointsToSegments(_cloud, markers, smoothDepthMapData);
     extractBiggestSegment(_cloud, clusters);
 
     if(_shouldView){
@@ -921,24 +955,31 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
 
         cv::Mat bgr_dist_map_viz;
         cv::Mat color_depth_viz;
-        // cv::Mat depthGradientsViz;
 
         cv::applyColorMap(bgr_dist_map, bgr_dist_map_viz, cv::COLORMAP_JET);
         cv::applyColorMap(color_depth, color_depth_viz, cv::COLORMAP_JET);
-        // cv::applyColorMap(depthGradients, depthGradientsViz, cv::COLORMAP_JET);
+
+        cv::namedWindow("Depth Map", cv::WINDOW_NORMAL);
+        cv::namedWindow("Sure Background", cv::WINDOW_NORMAL);
+        cv::namedWindow("Sure Foreground extremums", cv::WINDOW_NORMAL);
+        cv::namedWindow("Color Dist Map", cv::WINDOW_NORMAL);
+        cv::namedWindow("Markers distance", cv::WINDOW_NORMAL);
+        cv::namedWindow("Sure Foreground", cv::WINDOW_NORMAL);
+        cv::namedWindow("Color Depth Map", cv::WINDOW_NORMAL);
+        cv::namedWindow("Markers", cv::WINDOW_NORMAL);
+        cv::namedWindow("Watershed", cv::WINDOW_NORMAL);
 
         // You can also show intermediate steps
         cv::imshow("Depth Map", inverted_norm_depth);
-        cv::imshow("Color Depth Map", color_depth_viz);
-        cv::imshow("Color Dist Map", bgr_dist_map_viz);
-        // cv::imshow("Color gradients", depthGradientsViz);
-        // cv::imshow("Sure Foreground dist", sure_fg_dist);
+        cv::imshow("Sure Background", sure_bg);
         cv::imshow("Sure Foreground extremums", sure_fg_extremums);
+        cv::imshow("Color Dist Map", bgr_dist_map_viz);
         cv::imshow("Markers distance", dist_markers_viz);
         cv::imshow("Sure Foreground", sure_fg);
-        cv::imshow("Sure Background", sure_bg);
+        cv::imshow("Color Depth Map", color_depth_viz);
         cv::imshow("Markers", markers_viz);
         cv::imshow("Watershed", wshed);
+
         cv::waitKey(0);
 
         std::vector<pcl::RGB> colorTable = generatePclColors(clusters.size());
@@ -965,7 +1006,7 @@ void smoothPC(pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud, const float _s
     kdtree->setInputCloud(_pointCloud);
     // Set parameters
     mls.setInputCloud(_pointCloud);
-    mls.setPolynomialOrder(2);
+    mls.setPolynomialOrder(7);
     mls.setSearchMethod(kdtree);
     mls.setSearchRadius(_searchRadius);
 
