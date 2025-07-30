@@ -845,6 +845,128 @@ cv::Mat growSeedsWithinBoundaries(
     return final_grown_mask;
 }
 
+void fusePacManBlobs(
+    cv::Mat& _markers,
+    const double _solidity_threshold = 0.5,
+    const double _percentage_threshold = 0.33)
+{
+    // --- FIX 1: Use a new 'labels' matrix to avoid overwriting input ---
+    // We get stats from the binary version, but keep original labels for later.
+    cv::Mat labels, stats, centroids;
+    int num_labels = cv::connectedComponentsWithStats(_markers > 1, labels, stats, centroids, 4);
+
+    if (num_labels < 3) return; // Need at least two blobs to compare.
+
+    std::vector<std::vector<cv::Point>> contours(num_labels);
+    std::vector<std::vector<cv::Point>> hulls(num_labels);
+    std::vector<double> solidity(num_labels);
+    std::vector<cv::Point> safe_points(num_labels);
+
+    // Pre-calculate contours, hulls, and solidity for each blob.
+    for (int i = 1; i < num_labels; ++i) {
+        // Use the temporary 'labels' matrix to get each component's mask
+        cv::Mat blob_mask = (labels == i);
+        std::vector<std::vector<cv::Point>> blob_contours;
+        cv::findContours(blob_mask, blob_contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+        
+        if (!blob_contours.empty()) {
+            contours[i] = blob_contours[0];
+            double area = cv::contourArea(contours[i]);
+            cv::convexHull(contours[i], hulls[i]);
+            double hull_area = cv::contourArea(hulls[i]);
+            if (hull_area > 0) {
+                solidity[i] = area / hull_area;
+            }
+        }
+
+        cv::Mat dist_transform;
+        cv::distanceTransform(blob_mask, dist_transform, cv::DIST_L2, 5);
+        cv::minMaxLoc(dist_transform, nullptr, nullptr, nullptr, &safe_points[i]);
+    }
+
+    std::map<int, int> remap_table;
+
+    // Loop through all pairs of blobs to find Pac-Man configurations.
+    for (int eater_idx = 1; eater_idx < num_labels; ++eater_idx) {
+        std::cout << "potential eater solidity: " << solidity[eater_idx] << std::endl;
+        if (solidity[eater_idx] < _solidity_threshold) {
+            std::cout << "eater solidity: " << solidity[eater_idx] << std::endl;
+
+            for (int eaten_idx = 1; eaten_idx < num_labels; ++eaten_idx) {
+                if (eater_idx == eaten_idx) continue;
+
+                cv::Point2d eaten_centroid(centroids.at<double>(eaten_idx, 0), centroids.at<double>(eaten_idx, 1));
+                if (!hulls[eater_idx].empty() && !contours[eaten_idx].empty()) {
+                    int inside_points_count = 0;
+                    // Loop through each point of the "eaten" blob's contour.
+                    for (const cv::Point& pt : contours[eaten_idx]) {
+                        if (cv::pointPolygonTest(hulls[eater_idx], pt, false) >= 0) {
+                            inside_points_count++;
+                        }
+                    }
+
+                    // Check if a significant percentage of points are inside.
+                    double percentage_inside = static_cast<double>(inside_points_count) / contours[eaten_idx].size();
+                    std::cout << "potential eaten percentage: " << percentage_inside << std::endl;
+                    if (percentage_inside > _percentage_threshold) {
+                        std::cout << "eaten percentage: " << percentage_inside << std::endl;
+
+                        int eater_orig_label = _markers.at<int>(safe_points[eater_idx]);
+                        int eaten_orig_label = _markers.at<int>(safe_points[eaten_idx]);
+
+                        std::cout << "Testing blob " << eaten_orig_label << " into blob " << eater_orig_label << std::endl;
+                        if (eater_orig_label > 1 && eaten_orig_label > 1 && eater_orig_label != eaten_orig_label) {
+                            std::cout << "Fusing blob " << eaten_orig_label << " into blob " << eater_orig_label << std::endl;
+                            remap_table[eaten_orig_label] = eater_orig_label;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // --- FIX 3: Resolve chained fusions (e.g., A->B, B->C becomes A->C) ---
+    bool changed = true;
+    while(changed) {
+        changed = false;
+        for (auto& pair : remap_table) {
+            if (remap_table.count(pair.second)) {
+                pair.second = remap_table[pair.second];
+                changed = true;
+            }
+        }
+    }
+
+    // Apply the fusion by re-labeling the markers image.
+    std::set<int> unique_labels;
+    for (int y = 0; y < _markers.rows; ++y) {
+        for (int x = 0; x < _markers.cols; ++x) {
+            int& label = _markers.at<int>(y, x);
+            if (remap_table.count(label)) {
+                label = remap_table[label];
+            }
+            if (label > 1) { // Assuming 0 is unknown and 1 is background
+                unique_labels.insert(label);
+            }
+        }
+    }
+
+    // A small kernel is enough to bridge a 1-pixel gap.
+    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
+
+    // For each unique blob, apply closing to fill its internal gaps.
+    for (int label : unique_labels) {
+        // Create a mask for the current blob only.
+        cv::Mat blob_mask = (_markers == label);
+
+        // Close the gaps in the mask.
+        cv::morphologyEx(blob_mask, blob_mask, cv::MORPH_CLOSE, kernel);
+
+        // Update the main markers image with the filled blob.
+        _markers.setTo(label, blob_mask);
+    }
+}
+
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _cloud,
     const float _leafSize,
@@ -941,6 +1063,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr segmentWatershed(
 
     cv::Mat markers;
     watershed_markers(color_depth, sure_bg, sure_fg, markers);
+    fusePacManBlobs(markers, 0.5, 0.33);
 
     std::vector<pcl::PointIndices> clusters = mapPointsToSegments(_cloud, markers, smoothDepthMapData);
     extractBiggestSegment(_cloud, clusters);
