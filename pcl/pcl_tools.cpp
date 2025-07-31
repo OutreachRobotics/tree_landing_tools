@@ -1143,13 +1143,13 @@ std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> extractClusters(
 
     for(const auto& cluster : _clusters)
     {
-        extracted_clusters.emplace_back(extractPoints(_cloud, cluster));
+        extracted_clusters.emplace_back(extractPoints<pcl::PointXYZRGB>(_cloud, cluster));
     }
 
     return extracted_clusters;
 }
 
-double distanceToBoundingBoxSq(const pcl::PointXYZRGB& _point, const pcl_tools::BoundingBox& _bbox, bool is_2d)
+double distanceToBoundingBoxSq(const pcl::PointXYZRGB& _point, const pcl_tools::BoundingBox& _bbox, bool is_2d = true)
 {
     // First, check if the point is inside the bounding box
     bool is_inside_2d = (_point.x >= _bbox.min_x && _point.x <= _bbox.max_x &&
