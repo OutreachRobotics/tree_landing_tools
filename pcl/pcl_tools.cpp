@@ -630,52 +630,53 @@ DepthMapData computeDepthMap(
     return {filtered_depth_map, grid, min_x, min_y, _leafSize};
 }
 
-std::vector<pcl::PointIndices> mapPointsToSegments(
-    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _cloud, // The original, full point cloud
-    const cv::Mat& _markers,                               // The segmentation result
-    const DepthMapData& _mapData)                          // Contains min_x, min_y
+cv::Point pcToCv(
+    const pcl::PointXYZRGB& _point,
+    const DepthMapData& _map)
 {
-    // A map to hold the clusters, keyed by their segment label
-    std::map<int, pcl::PointIndices::Ptr> temp_segment_map;
+    int grid_x = static_cast<int>(std::floor(_point.x / _map.leafSize));
+    int grid_y = static_cast<int>(std::floor(_point.y / _map.leafSize));
 
-    // 1. Iterate through EVERY point in the original cloud
+    int pixel_x = grid_x - _map.min_x;
+    int pixel_y = grid_y - _map.min_y;
+
+    return cv::Point(pixel_x, pixel_y);
+}
+
+std::map<int, pcl::PointIndices> segmentsToClusters(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _cloud,
+    const cv::Mat& _markers,
+    const DepthMapData& _mapData)
+{
+    // A map to hold the final clusters, keyed by their segment label.
+    std::map<int, pcl::PointIndices> clusters_map;
+
+    // 1. Iterate through EVERY point in the original cloud.
     for (int i = 0; i < _cloud->points.size(); ++i) {
         const auto& point = _cloud->points[i];
-
-        // 2. Project the 3D point back to 2D grid/pixel coordinates
+        
+        // 2. Project the 3D point back to 2D pixel coordinates.
         int grid_x = static_cast<int>(floor(point.x / _mapData.leafSize));
         int grid_y = static_cast<int>(floor(point.y / _mapData.leafSize));
-
         int u = grid_x - _mapData.min_x; // Pixel column
         int v = grid_y - _mapData.min_y; // Pixel row
 
-        // 3. Check if the point's projection falls within the bounds of the marker image
+        // 3. Check if the point's projection falls within bounds.
         if (v >= 0 && v < _markers.rows && u >= 0 && u < _markers.cols) {
-            // 4. Get the segment label from the corresponding pixel in the marker image
             int label = _markers.at<int>(v, u);
 
-            // Skip background (label 1) and watershed boundaries (label -1)
+            // Skip background and boundary labels.
             if (label <= 1) {
                 continue;
             }
 
-            // If this is the first point for a new segment, create an entry in the map
-            if (temp_segment_map.find(label) == temp_segment_map.end()) {
-                temp_segment_map[label] = pcl::make_shared<pcl::PointIndices>();
-            }
-
-            // 5. Add the original point's index to the correct cluster
-            temp_segment_map[label]->indices.push_back(i);
+            // 4. Add the point's index directly to the correct cluster.
+            //    The map's [] operator creates the entry if it doesn't exist.
+            clusters_map[label].indices.push_back(i);
         }
     }
 
-    // Convert the map to the final output vector
-    std::vector<pcl::PointIndices> final_clusters;
-    for (const auto& pair : temp_segment_map) {
-        final_clusters.push_back(*pair.second);
-    }
-
-    return final_clusters;
+    return clusters_map;
 }
 
 std::vector<pcl::RGB> generatePclColors(const int _numColors)
@@ -990,8 +991,73 @@ void fusePacManBlobs(
     }
 }
 
-std::vector<pcl::PointIndices> segmentWatershed(
+std::vector<pcl::PointIndices> clustersMapToVector(
+    const std::map<int, pcl::PointIndices>& _clusters_map)
+{
+    std::vector<pcl::PointIndices> clusters_vector;
+    // Reserve space for efficiency
+    clusters_vector.reserve(_clusters_map.size());
+
+    // Iterate through the map and push the value (pair.second) into the vector
+    for (const auto& pair : _clusters_map) {
+        clusters_vector.push_back(pair.second);
+    }
+
+    return clusters_vector;
+}
+
+int getSegmentLabelForPoint(
+    const pcl::PointXYZRGB& _point,
+    const cv::Mat& _markers,
+    const DepthMapData& _mapData)
+{
+    // 1. Project the 3D point to 2D pixel coordinates.
+    int u = static_cast<int>(std::floor(_point.x / _mapData.leafSize)) - _mapData.min_x;
+    int v = static_cast<int>(std::floor(_point.y / _mapData.leafSize)) - _mapData.min_y;
+
+    // 2. Clamp coordinates to ensure they are within the image bounds.
+    int u_clamped = std::max(0, std::min(_markers.cols - 1, u));
+    int v_clamped = std::max(0, std::min(_markers.rows - 1, v));
+
+    // 3. Check the label at the point's direct (clamped) projection.
+    int label = _markers.at<int>(v_clamped, u_clamped);
+    if (label > 1) {
+        return label;
+    }
+
+    // 4. If the label is not valid, search outwards in an expanding box.
+    // The search radius 'd' increases on each iteration.
+    int max_search_dist = std::max(_markers.rows, _markers.cols);
+    for (int d = 1; d < max_search_dist; ++d) {
+        // Iterate over the perimeter of a square with side length 2*d + 1
+        for (int i = -d; i <= d; ++i) {
+            for (int j = -d; j <= d; ++j) {
+                // Skip the inner part of the box, which has already been checked.
+                if (std::abs(i) != d && std::abs(j) != d) {
+                    continue;
+                }
+
+                int nu = u_clamped + j;
+                int nv = v_clamped + i;
+
+                // Check if the neighbor pixel is within the image bounds.
+                if (nv >= 0 && nv < _markers.rows && nu >= 0 && nu < _markers.cols) {
+                    label = _markers.at<int>(nv, nu);
+                    if (label > 1) {
+                        return label; // Found the closest valid neighbor.
+                    }
+                }
+            }
+        }
+    }
+
+    // If no valid label was found anywhere, return -1.
+    return -1;
+}
+
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeWatershed(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _cloud,
+    const pcl::PointXYZRGB& _point,
     const float _leafSize,
     const float _radius,
     const int _medianKernelSize,
@@ -1005,6 +1071,7 @@ std::vector<pcl::PointIndices> segmentWatershed(
 
     DepthMapData depthMapData = computeDepthMap(_cloud, _leafSize, _medianKernelSize);
     DepthMapData smoothDepthMapData = computeDepthMap(smoothCloud, _leafSize, _medianKernelSize);
+    cv::Point cv_point = pcToCv(_point, smoothDepthMapData);
 
     // Define "sure background" as all pixels with 0 value in the original depth map
     cv::Mat sure_bg;
@@ -1084,8 +1151,8 @@ std::vector<pcl::PointIndices> segmentWatershed(
     watershed_markers(color_depth, sure_bg, sure_fg, markers);
     fusePacManBlobs(markers, _pacman_solidity);
 
-    std::vector<pcl::PointIndices> clusters = mapPointsToSegments(_cloud, markers, smoothDepthMapData);
-    // extractBiggestSegment(_cloud, clusters);
+    std::map<int, pcl::PointIndices> clusters_map = segmentsToClusters(_cloud, markers, smoothDepthMapData);
+    int point_label = getSegmentLabelForPoint(_point, markers, smoothDepthMapData);
 
     if(_shouldView){
         // 5. VISUALIZE THE RESULT
@@ -1093,13 +1160,13 @@ std::vector<pcl::PointIndices> segmentWatershed(
         cv::Mat markers_viz = visualizeMarkers(markers);
         
         // Blend the result with the original color depth map
-        cv::Mat wshed = markers_viz * 0.5 + color_depth * 0.5;
-
         cv::Mat bgr_dist_map_viz;
         cv::Mat color_depth_viz;
 
         cv::applyColorMap(bgr_dist_map, bgr_dist_map_viz, cv::COLORMAP_JET);
         cv::applyColorMap(color_depth, color_depth_viz, cv::COLORMAP_JET);
+
+        cv::Vec3b point_color(0, 0, 0); 
 
         cv::namedWindow("Depth Map", cv::WINDOW_NORMAL);
         cv::namedWindow("Sure Background", cv::WINDOW_NORMAL);
@@ -1109,7 +1176,6 @@ std::vector<pcl::PointIndices> segmentWatershed(
         cv::namedWindow("Sure Foreground", cv::WINDOW_NORMAL);
         cv::namedWindow("Color Depth Map", cv::WINDOW_NORMAL);
         cv::namedWindow("Markers", cv::WINDOW_NORMAL);
-        cv::namedWindow("Watershed", cv::WINDOW_NORMAL);
 
         // You can also show intermediate steps
         cv::imshow("Depth Map", inverted_norm_depth);
@@ -1119,19 +1185,20 @@ std::vector<pcl::PointIndices> segmentWatershed(
         cv::imshow("Markers distance", dist_markers_viz);
         cv::imshow("Sure Foreground", sure_fg);
         cv::imshow("Color Depth Map", color_depth_viz);
+        markers_viz.at<cv::Vec3b>(cv_point.y, cv_point.x) = point_color;
         cv::imshow("Markers", markers_viz);
-        cv::imshow("Watershed", wshed);
 
         cv::waitKey(0);
 
-        std::vector<pcl::RGB> colorTable = generatePclColors(clusters.size());
+        std::vector<pcl::PointIndices> clusters_vec = clustersMapToVector(clusters_map);
+        std::vector<pcl::RGB> colorTable = generatePclColors(clusters_vec.size());
         colorSegmentedPoints(_cloud, pcl::RGB(255,255,255));
-        for(size_t i=0; i < clusters.size(); ++i) {
-            colorSegmentedPoints(_cloud, clusters[i], colorTable[i]);
+        for(size_t i=0; i < clusters_vec.size(); ++i) {
+            colorSegmentedPoints(_cloud, clusters_vec[i], colorTable[i]);
         }
     }
     
-    return clusters;
+    return extractPoints<pcl::PointXYZRGB>(_cloud, clusters_map.at(point_label));
 }
 
 std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> extractClusters(
@@ -1182,32 +1249,32 @@ double distanceToBoundingBoxSq(const pcl::PointXYZRGB& _point, const pcl_tools::
     }
 }
 
-pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractClosestTree(
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractClosestCluster(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
     const std::vector<pcl::PointIndices>& _clusters,
     const pcl::PointXYZRGB& _point)
 {
-    std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> extracted_trees = extractClusters(_cloud, _clusters);
+    std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> extracted_clusters = extractClusters(_cloud, _clusters);
 
-    if (extracted_trees.empty()) {
+    if (extracted_clusters.empty()) {
         return nullptr;
     }
 
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr closest_tree = nullptr;
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr closest_cluster = nullptr;
     double min_distance_sq = std::numeric_limits<double>::max();
 
-    for (const auto& tree : extracted_trees)
+    for (const auto& cluster : extracted_clusters)
     {
-        pcl_tools::BoundingBox bbox = getBB(tree);
+        pcl_tools::BoundingBox bbox = getBB(cluster);
         double dist_sq = distanceToBoundingBoxSq(_point, bbox);
 
         if (dist_sq < min_distance_sq) {
             min_distance_sq = dist_sq;
-            closest_tree = tree;
+            closest_cluster = cluster;
         }
     }
 
-    return closest_tree;
+    return closest_cluster;
 }
 
 void smoothPC(pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud, const float _searchRadius)

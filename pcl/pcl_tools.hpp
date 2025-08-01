@@ -223,8 +223,9 @@ pcl::PointCloud <pcl::PointXYZRGB>::Ptr computeSegmentation(
     const float _threshCurve = 0.03
 );
 
-std::vector<pcl::PointIndices> segmentWatershed(
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeWatershed(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _cloud,
+    const pcl::PointXYZRGB& _point,
     const float _leafSize = 0.1,
     const float _radius = 1.0,
     const int _medianKernelSize = 5,
@@ -239,7 +240,7 @@ std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> extractClusters(
     const std::vector<pcl::PointIndices>& _clusters
 );
 
-pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractClosestTree(
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractClosestCluster(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
     const std::vector<pcl::PointIndices>& _clusters,
     const pcl::PointXYZRGB& _point
