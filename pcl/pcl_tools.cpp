@@ -1772,24 +1772,36 @@ float computePointsDist3D(
     return std::sqrt(dx * dx + dy * dy + dz * dz);
 }
 
-std::vector<std::pair<float, float>> computeDistToPointsOfInterest(
+std::vector<std::vector<float>> computeDistToPointsOfInterest(
     const pcl::PointXYZRGB& _landingPoint,
-    const std::vector<pcl::PointXYZRGB>& _pointsOfInterest)
+    const std::vector<pcl::PointXYZRGB>& _pointsOfInterest,
+    const pcl_tools::BoundingBox& _treeBB)
 {
-    std::vector<std::pair<float, float>> output;
+    std::vector<std::vector<float>> output;
     output.reserve(_pointsOfInterest.size());
 
-    for (size_t i = 0; i < _pointsOfInterest.size(); ++i)
+    for(size_t i = 0; i < _pointsOfInterest.size(); ++i)
     {
         const pcl::PointXYZRGB pointOfInterest = _pointsOfInterest[i];
 
         float dist2D = computePointsDist2D(_landingPoint, pointOfInterest);
         float dist3D = computePointsDist3D(_landingPoint, pointOfInterest);
 
-        output.emplace_back(dist2D, dist3D); 
+        float min_diameter = std::min(_treeBB.width, _treeBB.height);
+        float ratio2D = dist2D/min_diameter;
+        float ratio3D = dist3D/min_diameter;
 
-        std::cout << "Distance to Point of interest #" << i << " 2D: " << output[i].first << std::endl;
-        std::cout << "Distance to Point of interest #" << i << " 3D: " << output[i].second << std::endl;
+        std::vector<float> row;
+        row.push_back(dist2D);
+        row.push_back(dist3D);
+        row.push_back(ratio2D);
+        row.push_back(ratio3D);
+        output.emplace_back(row);
+
+        std::cout << "Distance to Point of interest #" << i << " 2D: " << dist2D << std::endl;
+        std::cout << "Distance to Point of interest #" << i << " 3D: " << dist3D << std::endl;
+        std::cout << "Ratio Distance 2D to Point of interest over tree diameter #" << i << ": " << ratio2D << std::endl;
+        std::cout << "Ratio Distance 3D to Point of interest over tree diameter #" << i << ": " << ratio3D << std::endl;
     }
 
     return output;

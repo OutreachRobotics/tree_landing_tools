@@ -342,9 +342,10 @@ float computePointsDist2D(const pcl::PointXYZRGB& point1, const pcl::PointXYZRGB
 
 float computePointsDist3D(const pcl::PointXYZRGB& point1, const pcl::PointXYZRGB& point2);
 
-std::vector<std::pair<float, float>> computeDistToPointsOfInterest(
-    const pcl::PointXYZRGB& landingPoint,
-    const std::vector<pcl::PointXYZRGB>& pointsOfInterest
+std::vector<std::vector<float>> computeDistToPointsOfInterest(
+    const pcl::PointXYZRGB& _landingPoint,
+    const std::vector<pcl::PointXYZRGB>& _pointsOfInterest,
+    const pcl_tools::BoundingBox& _treeBB
 );
 
 // Visualization utilities
