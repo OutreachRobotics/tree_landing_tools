@@ -886,65 +886,44 @@ void fusePacManBlobs(
 
     std::map<int, int> remap_table;
 
-    // Loop through all pairs of blobs to find Pac-Man configurations.
-    for (int eater_idx = 1; eater_idx < num_labels; ++eater_idx) {
-        std::cout << "potential eater solidity: " << solidity[eater_idx] << std::endl;
-        if (solidity[eater_idx] < _solidity_threshold) {
-            std::cout << "eater solidity: " << solidity[eater_idx] << std::endl;
+    for (int i = 1; i < num_labels; ++i) {
+        for (int j = i + 1; j < num_labels; ++j) {
 
-            for (int eaten_idx = 1; eaten_idx < num_labels; ++eaten_idx) {
-                if (eater_idx == eaten_idx) continue;
+            // --- NEW LOGIC: Determine eater based on size (pixel area) ---
+            int area_i = stats.at<int>(i, cv::CC_STAT_AREA);
+            int area_j = stats.at<int>(j, cv::CC_STAT_AREA);
 
-                // cv::Point2d eaten_centroid(centroids.at<double>(eaten_idx, 0), centroids.at<double>(eaten_idx, 1));
-                // if (!hulls[eater_idx].empty() && !contours[eaten_idx].empty()) {
-                //     int inside_points_count = 0;
-                //     // Loop through each point of the "eaten" blob's contour.
-                //     for (const cv::Point& pt : contours[eaten_idx]) {
-                //         if (cv::pointPolygonTest(hulls[eater_idx], pt, false) >= 0) {
-                //             inside_points_count++;
-                //         }
-                //     }
+            int eater_idx, eaten_idx;
+            if (area_i >= area_j) {
+                eater_idx = i;
+                eaten_idx = j;
+            } else {
+                eater_idx = j;
+                eaten_idx = i;
+            }
 
-                //     // Check if a significant percentage of points are inside.
-                //     double percentage_inside = static_cast<double>(inside_points_count) / contours[eaten_idx].size();
-                //     std::cout << "potential eaten percentage: " << percentage_inside << std::endl;
-                //     if (percentage_inside > _percentage_threshold) {
-                //         std::cout << "eaten percentage: " << percentage_inside << std::endl;
-
-                //         int eater_orig_label = _markers.at<int>(safe_points[eater_idx]);
-                //         int eaten_orig_label = _markers.at<int>(safe_points[eaten_idx]);
-
-                //         std::cout << "Testing blob " << eaten_orig_label << " into blob " << eater_orig_label << std::endl;
-                //         if (eater_orig_label > 1 && eaten_orig_label > 1 && eater_orig_label != eaten_orig_label) {
-                //             std::cout << "Fusing blob " << eaten_orig_label << " into blob " << eater_orig_label << std::endl;
-                //             remap_table[eaten_orig_label] = eater_orig_label;
-                //         }
-                //     }
-                // }
-
-                // Get the centroid of the potential "eater" blob.
-                cv::Point2d eater_centroid(centroids.at<double>(eater_idx, 0), centroids.at<double>(eater_idx, 1));
-                cv::Point2d eaten_centroid(centroids.at<double>(eaten_idx, 0), centroids.at<double>(eaten_idx, 1));
-                std::cout << "eater centroid: " << eater_centroid << std::endl;
-                std::cout << "eaten centroid: " << eaten_centroid << std::endl;
-                
-                // Check if the eaten's hull is valid.
-                if (!hulls[eater_idx].empty() && !hulls[eaten_idx].empty()) {
-                    // Test if the eaten blob's centroid is inside or on the eater's convex hull.
-                    double distance_nr = cv::pointPolygonTest(hulls[eaten_idx], eater_centroid, true);
-                    double distance_rn = cv::pointPolygonTest(hulls[eater_idx], eaten_centroid, true);
-                    std::cout << "Distance from eater centroid to eaten hull: " << distance_nr << std::endl;
-                    std::cout << "Distance from eaten centroid to eater hull: " << distance_rn << std::endl;
-                    if (distance_nr >= -1.0 || distance_rn >= -1.0) {
-                        int eater_orig_label = _markers.at<int>(safe_points[eater_idx]);
-                        int eaten_orig_label = _markers.at<int>(safe_points[eaten_idx]);
-
-                        if (eater_orig_label > 1 && eaten_orig_label > 1 && eater_orig_label != eaten_orig_label) {
-                            std::cout << "Fusing blob " << eaten_orig_label << " into blob " << eater_orig_label << std::endl;
-                            remap_table[eaten_orig_label] = eater_orig_label;
-                        }
-                    }
-                }
+            // Get the original labels from the input _markers Mat using the safe points
+            int eater_label = _markers.at<int>(safe_points[eater_idx]);
+            int eaten_label = _markers.at<int>(safe_points[eaten_idx]);
+            
+            if (eater_label <= 1 || eaten_label <= 1 || eater_label == eaten_label) continue;
+            
+            // Get centroids and check if hulls are valid
+            cv::Point2d eater_centroid(centroids.at<double>(eater_idx, 0), centroids.at<double>(eater_idx, 1));
+            cv::Point2d eaten_centroid(centroids.at<double>(eaten_idx, 0), centroids.at<double>(eaten_idx, 1));
+            
+            if (hulls[eater_idx].empty() || hulls[eaten_idx].empty()) continue;
+            
+            // --- Proximity Check ---
+            // We still need to check if the blobs are close to each other.
+            // A simple way is to check if either centroid is inside the other's convex hull.
+            double dist_eaten_in_eater_hull = cv::pointPolygonTest(hulls[eater_idx], eaten_centroid, true);
+            double dist_eater_in_eaten_hull = cv::pointPolygonTest(hulls[eaten_idx], eater_centroid, true);
+            
+            // If they are close enough, perform the fusion.
+            if (dist_eaten_in_eater_hull >= -1.0 || dist_eater_in_eaten_hull >= -1.0) {
+                std::cout << "Fusing blob " << eaten_label << " into blob " << eater_label << " based on size." << std::endl;
+                remap_table[eaten_label] = eater_label;
             }
         }
     }
