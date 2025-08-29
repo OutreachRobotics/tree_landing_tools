@@ -968,6 +968,61 @@ void fusePacManBlobs(
     }
 }
 
+cv::Mat keepLargestBlob(const cv::Mat& _mask)
+{
+    // 1. Find all connected components and their stats
+    cv::Mat labels, stats, centroids;
+    int num_labels = cv::connectedComponentsWithStats(_mask, labels, stats, centroids, 4);
+
+    // If there are 2 labels, it means 1 background (0) and 1 blob (1). No need to process.
+    if (num_labels < 3) {
+        return _mask.clone();
+    }
+
+    // 2. Find the label of the largest component (excluding the background label 0)
+    int largest_area = 0;
+    int largest_label = 0;
+
+    // Start from label 1 to ignore the background
+    for (int i = 1; i < num_labels; ++i) {
+        int current_area = stats.at<int>(i, cv::CC_STAT_AREA);
+        if (current_area > largest_area) {
+            largest_area = current_area;
+            largest_label = i;
+        }
+    }
+
+    // 3. Create a new mask containing only the largest blob
+    cv::Mat largest_blob_mask = (labels == largest_label);
+
+    return largest_blob_mask;
+}
+
+void removeOutgrowths(cv::Mat& _markers)
+{
+    std::set<int> unique_labels;
+    for (int y = 0; y < _markers.rows; ++y) {
+        for (int x = 0; x < _markers.cols; ++x) {
+            int& label = _markers.at<int>(y, x);
+            if(label > 1) {
+                unique_labels.insert(label);
+            }
+        }
+    }
+
+    for (int label : unique_labels) {
+        // Create a mask for the current blob only.
+        cv::Mat blob_mask = (_markers == label);
+
+        cv::Mat cleaned_mask;
+        cv::morphologyEx(blob_mask, cleaned_mask, cv::MORPH_OPEN, cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3)));
+        cleaned_mask = keepLargestBlob(cleaned_mask);
+
+        cv::Mat outgrowth_mask = blob_mask - cleaned_mask;
+        _markers.setTo(-1, outgrowth_mask);
+    }
+}
+
 std::vector<pcl::PointIndices> clustersMapToVector(
     const std::map<int, pcl::PointIndices>& _clusters_map)
 {
@@ -1043,8 +1098,11 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeWatershed(
     const float _pacman_solidity,
     const bool _shouldView)
 {
+    const float SMOOTH_FACTOR = 1.5*_radius;
+    const float EXTREMUMS_RADIUS = _radius;
+
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr smoothCloud(new pcl::PointCloud<pcl::PointXYZRGB>(*_cloud));
-    smoothPC(smoothCloud, 2.0*_radius);
+    smoothPC(smoothCloud, SMOOTH_FACTOR);
 
     DepthMapData depthMapData = computeDepthMap(_cloud, _leafSize, _medianKernelSize);
     DepthMapData smoothDepthMapData = computeDepthMap(smoothCloud, _leafSize, _medianKernelSize);
@@ -1059,7 +1117,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeWatershed(
     cv::bitwise_not(sure_bg, foreground_mask);
 
     // --- Method 2: Get seeds from 3D Local Extrema ---
-    pcl::PointIndices maximumIdx = pcl_tools::findLocalExtremums(smoothCloud, _radius, false);
+    pcl::PointIndices maximumIdx = pcl_tools::findLocalExtremums(smoothCloud, EXTREMUMS_RADIUS, false);
     cv::Mat sure_fg_extremums = cv::Mat::zeros(smoothDepthMapData.depthMap.size(), CV_8UC1);
 
     for (const int& index : maximumIdx.indices) {
@@ -1127,8 +1185,11 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeWatershed(
     cv::Mat markers;
     watershed_markers(color_depth, sure_bg, sure_fg, markers);
 
-    cv::Mat markers_no_pacman = markers.clone();
+    cv::Mat markers_b4_pacman = markers.clone();
     fusePacManBlobs(markers, _pacman_solidity);
+
+    cv::Mat markers_b4_outgrowths = markers.clone();
+    removeOutgrowths(markers);
 
     std::map<int, pcl::PointIndices> clusters_map = segmentsToClusters(_cloud, markers, smoothDepthMapData);
     int point_label = getSegmentLabelForPoint(_point, markers, smoothDepthMapData);
@@ -1136,7 +1197,8 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeWatershed(
     if(_shouldView){
         // 5. VISUALIZE THE RESULT
         cv::Mat dist_markers_viz = visualizeMarkers(dist_markers);
-        cv::Mat markers_no_pacman_viz = visualizeMarkers(markers_no_pacman);
+        cv::Mat markers_b4_pacman_viz = visualizeMarkers(markers_b4_pacman);
+        cv::Mat markers_b4_outgrowths_viz = visualizeMarkers(markers_b4_outgrowths);
         cv::Mat markers_viz = visualizeMarkers(markers);
         
         // Blend the result with the original color depth map
@@ -1156,6 +1218,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeWatershed(
         cv::namedWindow("Sure Foreground", cv::WINDOW_NORMAL);
         cv::namedWindow("Color Depth Map", cv::WINDOW_NORMAL);
         cv::namedWindow("Markers before pacman", cv::WINDOW_NORMAL);
+        cv::namedWindow("Markers before outgrowths", cv::WINDOW_NORMAL);
         cv::namedWindow("Markers", cv::WINDOW_NORMAL);
 
         // You can also show intermediate steps
@@ -1166,7 +1229,8 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeWatershed(
         cv::imshow("Markers distance", dist_markers_viz);
         cv::imshow("Sure Foreground", sure_fg);
         cv::imshow("Color Depth Map", color_depth_viz);
-        cv::imshow("Markers before pacman", markers_no_pacman_viz);
+        cv::imshow("Markers before pacman", markers_b4_pacman_viz);
+        cv::imshow("Markers before outgrowths", markers_b4_outgrowths_viz);
         markers_viz.at<cv::Vec3b>(cv_point.y, cv_point.x) = point_color;
         cv::imshow("Markers", markers_viz);
 
