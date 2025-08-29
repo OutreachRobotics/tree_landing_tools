@@ -1092,17 +1092,18 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeWatershed(
     const pcl::PointXYZRGB& _point,
     const float _leafSize,
     const float _radius,
+    const float _smooth_factor,
     const int _medianKernelSize,
     const int _tophat_kernel,
     const float _tophat_amplification,
     const float _pacman_solidity,
     const bool _shouldView)
 {
-    const float SMOOTH_FACTOR = 1.5*_radius;
+    const float SMOOTH_RADIUS = _smooth_factor*_radius;
     const float EXTREMUMS_RADIUS = _radius;
 
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr smoothCloud(new pcl::PointCloud<pcl::PointXYZRGB>(*_cloud));
-    smoothPC(smoothCloud, SMOOTH_FACTOR);
+    smoothPC(smoothCloud, SMOOTH_RADIUS);
 
     DepthMapData depthMapData = computeDepthMap(_cloud, _leafSize, _medianKernelSize);
     DepthMapData smoothDepthMapData = computeDepthMap(smoothCloud, _leafSize, _medianKernelSize);

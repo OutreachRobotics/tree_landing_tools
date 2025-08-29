@@ -228,6 +228,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeWatershed(
     const pcl::PointXYZRGB& _point,
     const float _leafSize = 0.1,
     const float _radius = 1.0,
+    const float _smooth_factor = 2.0,
     const int _medianKernelSize = 5,
     const int _tophat_kernel = 9,
     const float _tophat_amplification = 10.0,
