@@ -850,6 +850,7 @@ void fusePacManBlobs(
     cv::Mat& _markers,
     const double _solidity_threshold = 0.9)
 {
+    std::cout << "fusePacManBlobs" << std::endl;
     // --- FIX 1: Use a new 'labels' matrix to avoid overwriting input ---
     // We get stats from the binary version, but keep original labels for later.
     cv::Mat labels, stats, centroids;
@@ -941,29 +942,26 @@ void fusePacManBlobs(
     }
 
     // Apply the fusion by re-labeling the markers image.
-    std::set<int> unique_labels;
+    std::set<int> remapped_labels;
     for (int y = 0; y < _markers.rows; ++y) {
         for (int x = 0; x < _markers.cols; ++x) {
             int& label = _markers.at<int>(y, x);
             if (remap_table.count(label)) {
                 label = remap_table[label];
-            }
-            if (label > 1) { // Assuming 0 is unknown and 1 is background
-                unique_labels.insert(label);
+                if(label > 1) {
+                    remapped_labels.insert(label);
+                }
             }
         }
     }
 
-    // A small kernel is enough to bridge a 1-pixel gap.
-    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
-
     // For each unique blob, apply closing to fill its internal gaps.
-    for (int label : unique_labels) {
+    for (int label : remapped_labels) {
         // Create a mask for the current blob only.
         cv::Mat blob_mask = (_markers == label);
 
         // Close the gaps in the mask.
-        cv::morphologyEx(blob_mask, blob_mask, cv::MORPH_CLOSE, kernel);
+        cv::morphologyEx(blob_mask, blob_mask, cv::MORPH_CLOSE, cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3)));
 
         // Update the main markers image with the filled blob.
         _markers.setTo(label, blob_mask);
@@ -1128,6 +1126,8 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeWatershed(
 
     cv::Mat markers;
     watershed_markers(color_depth, sure_bg, sure_fg, markers);
+
+    cv::Mat markers_no_pacman = markers.clone();
     fusePacManBlobs(markers, _pacman_solidity);
 
     std::map<int, pcl::PointIndices> clusters_map = segmentsToClusters(_cloud, markers, smoothDepthMapData);
@@ -1136,6 +1136,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeWatershed(
     if(_shouldView){
         // 5. VISUALIZE THE RESULT
         cv::Mat dist_markers_viz = visualizeMarkers(dist_markers);
+        cv::Mat markers_no_pacman_viz = visualizeMarkers(markers_no_pacman);
         cv::Mat markers_viz = visualizeMarkers(markers);
         
         // Blend the result with the original color depth map
@@ -1154,6 +1155,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeWatershed(
         cv::namedWindow("Markers distance", cv::WINDOW_NORMAL);
         cv::namedWindow("Sure Foreground", cv::WINDOW_NORMAL);
         cv::namedWindow("Color Depth Map", cv::WINDOW_NORMAL);
+        cv::namedWindow("Markers before pacman", cv::WINDOW_NORMAL);
         cv::namedWindow("Markers", cv::WINDOW_NORMAL);
 
         // You can also show intermediate steps
@@ -1164,6 +1166,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeWatershed(
         cv::imshow("Markers distance", dist_markers_viz);
         cv::imshow("Sure Foreground", sure_fg);
         cv::imshow("Color Depth Map", color_depth_viz);
+        cv::imshow("Markers before pacman", markers_no_pacman_viz);
         markers_viz.at<cv::Vec3b>(cv_point.y, cv_point.x) = point_color;
         cv::imshow("Markers", markers_viz);
 
