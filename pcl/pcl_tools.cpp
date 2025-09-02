@@ -399,6 +399,36 @@ pcl::PointIndices extractNeighborPC(
     return inliers;
 }
 
+pcl::PointIndices extractNeighborCirclePC(
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _pointCloud,
+    const pcl::PointXYZRGB& _center,
+    const float _radius)
+{
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr flattenPC(new pcl::PointCloud<pcl::PointXYZRGB>(*_pointCloud));
+
+    pcl::PointXYZRGB searchCenter = _center;
+    searchCenter.z = 0.0f;
+
+    for (auto& point : *flattenPC) {
+        // Set the Z coordinate to 0
+        point.z = 0.0f;
+    }
+
+    pcl::search::KdTree<pcl::PointXYZRGB>::Ptr kdtree(new pcl::search::KdTree<pcl::PointXYZRGB>);
+    kdtree->setInputCloud(flattenPC);
+
+    std::vector<int> pointIdxRadiusSearch;
+    std::vector<float> pointRadiusSquaredDistance;
+    pcl::PointIndices inliers;
+    if(kdtree->radiusSearch(searchCenter, _radius, pointIdxRadiusSearch, pointRadiusSquaredDistance) > 0){
+        inliers.indices = pointIdxRadiusSearch;
+    }
+
+    _pointCloud = extractPoints<pcl::PointXYZRGB>(_pointCloud, inliers, false);
+
+    return inliers;
+}
+
 pcl::PointIndices concatenateClusters(
     const std::vector<pcl::PointIndices>& _cluster_indices) 
 {
@@ -1513,6 +1543,18 @@ float computeDensity(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud, float 
 
     // Compute the density
     float density = _cloud->points.size() / volume;
+
+    std::cout << "Density: " << density << std::endl;
+    return density;
+}
+
+float computeSurfaceDensity(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud, float _radius)
+{
+    // Compute the area of the circle
+    float area = M_PI * std::pow(_radius, 2);
+
+    // Compute the density
+    float density = _cloud->points.size() / area;
 
     std::cout << "Density: " << density << std::endl;
     return density;

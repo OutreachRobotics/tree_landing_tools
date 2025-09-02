@@ -203,6 +203,12 @@ pcl::PointIndices extractNeighborPC(
     const float radius
 );
 
+pcl::PointIndices extractNeighborCirclePC(
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr& pointCloud,
+    const pcl::PointXYZRGB& center,
+    const float radius
+);
+
 std::vector<pcl::PointIndices> computeClusters(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr& pointCloud,
     float threshold,
@@ -302,6 +308,8 @@ void extractSurface(
 
 // Geometric computations
 float computeDensity(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, float radius);
+
+float computeSurfaceDensity(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, float radius);
 
 float projectPoint(
     const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr& _cloud,
