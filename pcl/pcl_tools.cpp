@@ -1119,7 +1119,6 @@ int getSegmentLabelForPoint(
 
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeWatershed(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _cloud,
-    const pcl::PointXYZRGB& _point,
     const float _leafSize,
     const float _radius,
     const float _smooth_factor,
@@ -1127,8 +1126,16 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeWatershed(
     const int _tophat_kernel,
     const float _tophat_amplification,
     const float _pacman_solidity,
-    const bool _shouldView)
+    const bool _shouldView,
+    std::optional<pcl::PointXYZRGB> _point)
 {
+    bool has_landing_point = false;
+    pcl::PointXYZRGB point;
+    if(_point){
+        point = _point.value();
+        has_landing_point = true;
+    };
+
     const float SMOOTH_RADIUS = _smooth_factor*_radius;
     const float EXTREMUMS_RADIUS = _radius;
 
@@ -1137,7 +1144,6 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeWatershed(
 
     DepthMapData depthMapData = computeDepthMap(_cloud, _leafSize, _medianKernelSize);
     DepthMapData smoothDepthMapData = computeDepthMap(smoothCloud, _leafSize, _medianKernelSize);
-    cv::Point cv_point = pcToCv(_point, smoothDepthMapData);
 
     // Define "sure background" as all pixels with 0 value in the original depth map
     cv::Mat sure_bg;
@@ -1152,11 +1158,11 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeWatershed(
     cv::Mat sure_fg_extremums = cv::Mat::zeros(smoothDepthMapData.depthMap.size(), CV_8UC1);
 
     for (const int& index : maximumIdx.indices) {
-        const auto& point = smoothCloud->points[index];
+        const auto& cloudPoint = smoothCloud->points[index];
 
         // Project the 3D point back to 2D grid/pixel coordinates.
-        int grid_x = static_cast<int>(floor(point.x / _leafSize));
-        int grid_y = static_cast<int>(floor(point.y / _leafSize));
+        int grid_x = static_cast<int>(floor(cloudPoint.x / _leafSize));
+        int grid_y = static_cast<int>(floor(cloudPoint.y / _leafSize));
 
         int u = grid_x - smoothDepthMapData.min_x; // Pixel column
         int v = grid_y - smoothDepthMapData.min_y; // Pixel row
@@ -1223,7 +1229,6 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeWatershed(
     removeOutgrowths(markers);
 
     std::map<int, pcl::PointIndices> clusters_map = segmentsToClusters(_cloud, markers, smoothDepthMapData);
-    int point_label = getSegmentLabelForPoint(_point, markers, smoothDepthMapData);
 
     if(_shouldView){
         // 5. VISUALIZE THE RESULT
@@ -1262,7 +1267,11 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeWatershed(
         cv::imshow("Color Depth Map", color_depth_viz);
         cv::imshow("Markers before pacman", markers_b4_pacman_viz);
         cv::imshow("Markers before outgrowths", markers_b4_outgrowths_viz);
-        markers_viz.at<cv::Vec3b>(cv_point.y, cv_point.x) = point_color;
+
+        if(has_landing_point){
+            cv::Point cv_point = pcToCv(point, smoothDepthMapData);
+            markers_viz.at<cv::Vec3b>(cv_point.y, cv_point.x) = point_color;
+        }
         cv::imshow("Markers", markers_viz);
 
         cv::waitKey(0);
@@ -1275,7 +1284,20 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeWatershed(
         }
     }
     
-    return extractPoints<pcl::PointXYZRGB>(_cloud, clusters_map.at(point_label));
+    if(has_landing_point){
+        int point_label = getSegmentLabelForPoint(point, markers, smoothDepthMapData);
+        return extractPoints<pcl::PointXYZRGB>(_cloud, clusters_map.at(point_label));
+    }
+    else{
+        auto biggest_cluster_it = std::max_element(
+            clusters_map.begin(),
+            clusters_map.end(),
+            [](const auto& a, const auto& b) {
+                return a.second.indices.size() < b.second.indices.size();
+            }
+        );
+        return extractPoints<pcl::PointXYZRGB>(_cloud, biggest_cluster_it->second);
+    }
 }
 
 std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> extractClusters(
@@ -1291,6 +1313,34 @@ std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> extractClusters(
     }
 
     return extracted_clusters;
+}
+
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloud(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _cloud,
+    const float _step)
+{
+    BoundingBox bbox = getBB(_cloud);
+
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr gridCloud(new pcl::PointCloud<pcl::PointXYZRGB>());
+
+    // Check for zero spacing to prevent an infinite loop.
+    if (_step <= 0) {
+        return gridCloud; // Return empty cloud if spacing is invalid
+    }
+
+    for (float x = bbox.min_x; x <= bbox.max_x; x += _step) {
+        for (float y = bbox.min_y; y <= bbox.max_y; y += _step) {
+            
+            pcl::PointXYZRGB point;
+            point.x = x;
+            point.y = y;
+            point.z = projectPoint(_cloud, point);
+
+            gridCloud->push_back(point);
+        }
+    }
+
+    return gridCloud;
 }
 
 double distanceToBoundingBoxSq(const pcl::PointXYZRGB& _point, const pcl_tools::BoundingBox& _bbox, bool is_2d = true)
@@ -1894,6 +1944,38 @@ std::vector<std::vector<float>> computeDistToPointsOfInterest(
     }
 
     return output;
+}
+
+Features computeFeatures(
+    const pcl::PointXYZRGB& _landingPoint,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _landingSurfaceCloud,
+    const float& _radius)
+{
+    BoundingBox treeBB = getBB(_treeCloud);
+
+    pcl::PointXYZRGB treeCenterPoint(treeBB.centroid[0], treeBB.centroid[1], 0.0, 255, 255, 255);
+    projectPoint(_treeCloud, treeCenterPoint);
+
+    pcl::PointXYZRGB highestPoint = getHighestPoint(_treeCloud);
+
+    pcl::PrincipalCurvatures curvatures = computeCurvature(_landingSurfaceCloud, _landingPoint, 2.0*_radius);
+    float density = computeSurfaceDensity(_landingSurfaceCloud, _radius);
+    Eigen::Vector4f coef = computePlane(_landingSurfaceCloud);
+    float slope = computePlaneAngle(coef);
+    float stdDev = computeStandardDeviation(_landingSurfaceCloud, coef);
+    float distTop = highestPoint.z - _landingPoint.z;
+
+    std::vector<std::vector<float>> distsOfInterest = computeDistToPointsOfInterest(
+        _landingPoint, 
+        std::vector<pcl::PointXYZRGB>({
+            treeCenterPoint,
+            highestPoint
+        }),
+        treeBB
+    );
+
+    return Features{curvatures, treeBB, density, slope, stdDev, distTop, distsOfInterest};
 }
 
 void printPoint(const pcl::PointXYZRGB& _point)

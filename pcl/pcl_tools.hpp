@@ -4,6 +4,7 @@
 #include <iostream>
 #include <fstream>
 #include <opencv2/opencv.hpp>
+#include <optional>
 #include <unordered_set>
 
 #if defined(ROS_VERSION) && ROS_VERSION == 2
@@ -72,6 +73,16 @@ struct DepthMapData {
     int min_x;
     int min_y;
     float leafSize;
+};
+
+struct Features {
+    pcl::PrincipalCurvatures curvatures;
+    pcl_tools::BoundingBox treeBB;
+    float density;
+    float slope;
+    float stdDev;
+    float distTop;
+    std::vector<std::vector<float>> distsOfInterest;
 };
 
 // Point cloud loading
@@ -231,7 +242,6 @@ pcl::PointCloud <pcl::PointXYZRGB>::Ptr computeSegmentation(
 
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeWatershed(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _cloud,
-    const pcl::PointXYZRGB& _point,
     const float _leafSize = 0.1,
     const float _radius = 1.0,
     const float _smooth_factor = 2.0,
@@ -239,7 +249,8 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeWatershed(
     const int _tophat_kernel = 9,
     const float _tophat_amplification = 10.0,
     const float _pacman_solidity = 0.6,
-    const bool _shouldView = false
+    const bool _shouldView = false,
+    std::optional<pcl::PointXYZRGB> _point = std::nullopt
 );
 
 std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> extractClusters(
@@ -251,6 +262,11 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractClosestCluster(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
     const std::vector<pcl::PointIndices>& _clusters,
     const pcl::PointXYZRGB& _point
+);
+
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloud(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _cloud,
+    const float _step
 );
 
 void removeNoise(
@@ -355,6 +371,13 @@ std::vector<std::vector<float>> computeDistToPointsOfInterest(
     const pcl::PointXYZRGB& _landingPoint,
     const std::vector<pcl::PointXYZRGB>& _pointsOfInterest,
     const pcl_tools::BoundingBox& _treeBB
+);
+
+Features computeFeatures(
+    const pcl::PointXYZRGB& _landingPoint,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _landingSurfaceCloud,
+    const float& _radius
 );
 
 // Visualization utilities
