@@ -404,6 +404,11 @@ pcl::PointIndices extractNeighborCirclePC(
     const pcl::PointXYZRGB& _center,
     const float _radius)
 {
+    if(_pointCloud->size() == 0) {
+        std::cout << "extractNeighborCirclePC returning empty indices after recieving empty cloud" << std::endl;
+        return pcl::PointIndices();
+    }
+
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr flattenPC(new pcl::PointCloud<pcl::PointXYZRGB>(*_pointCloud));
 
     pcl::PointXYZRGB searchCenter = _center;
@@ -1317,19 +1322,26 @@ std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> extractClusters(
 
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloud(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _cloud,
-    const float _step)
+    const float& _radius,
+    const float& _radius_factor)
 {
+    float step = _radius_factor*_radius;
     BoundingBox bbox = getBB(_cloud);
 
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr gridCloud(new pcl::PointCloud<pcl::PointXYZRGB>());
 
     // Check for zero spacing to prevent an infinite loop.
-    if (_step <= 0) {
+    if (step <= 0) {
         return gridCloud; // Return empty cloud if spacing is invalid
     }
 
-    for (float x = bbox.min_x; x <= bbox.max_x; x += _step) {
-        for (float y = bbox.min_y; y <= bbox.max_y; y += _step) {
+    float min_x = bbox.min_x + _radius;
+    float max_x = bbox.max_x - _radius;
+    float min_y = bbox.min_y + _radius;
+    float max_y = bbox.max_y - _radius;
+
+    for (float x = min_x; x <= max_x; x += step) {
+        for (float y = min_y; y <= max_y; y += step) {
             
             pcl::PointXYZRGB point;
             point.x = x;
@@ -1586,7 +1598,7 @@ void extractSurface(
     _cloud = extractPoints<pcl::PointXYZRGB>(_cloud, idx, false);
 }
 
-float computeDensity(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud, float _radius)
+float computeDensity(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud, const float _radius)
 {
     // Compute the volume of the sphere
     float volume = (4.0f / 3.0f) * M_PI * std::pow(_radius, 3);
@@ -1598,7 +1610,9 @@ float computeDensity(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud, float 
     return density;
 }
 
-float computeSurfaceDensity(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud, float _radius)
+float computeSurfaceDensity(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
+    const float _radius)
 {
     // Compute the area of the circle
     float area = M_PI * std::pow(_radius, 2);
@@ -1680,48 +1694,43 @@ pcl::PrincipalCurvatures computeCurvature(
         return pcl::PrincipalCurvatures();
     }
 
-    // Step 2: Create a KdTree and set the input cloud
-    pcl::search::KdTree<pcl::PointXYZRGB>::Ptr kdtree(new pcl::search::KdTree<pcl::PointXYZRGB>);
-    kdtree->setInputCloud(_cloud);
-
-    std::vector<int> neighbor_indices;
-    std::vector<float> neighbor_sq_dists;
-
-    // --- ROBUSTNESS FIX ---
-    // Add a check to ensure enough neighbors are found. Curvature estimation is unstable
-    // with too few points and can cause the program to crash.
-    if (kdtree->radiusSearch(_point, _radius, neighbor_indices, neighbor_sq_dists) < 8)
-    {
-        std::cout << "Error: Not enough points to compute curvature." << std::endl;
-        // throw std::runtime_error("No curvature computed for the specified point.");
-        return pcl::PrincipalCurvatures();
-    }
-
     // Instead of copying the whole cloud, create a small cloud containing only the neighbors.
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr neighborhood(new pcl::PointCloud<pcl::PointXYZRGB>);
-    pcl::copyPointCloud(*_cloud, neighbor_indices, *neighborhood);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr curvatureCloud(new pcl::PointCloud<pcl::PointXYZRGB>(*_cloud));
 
     // Add the query point itself to the neighborhood cloud.
-    neighborhood->push_back(_point);
-    const int target_idx = neighborhood->size() - 1;
+    curvatureCloud->push_back(_point);
+    const int target_idx = curvatureCloud->size() - 1;
 
     // Step 3: Compute normals for the whole cloud
-    pcl::PointCloud<pcl::Normal>::Ptr normals = computeNormalsRad(neighborhood, _radius);
+    pcl::PointCloud<pcl::Normal>::Ptr normals = computeNormalsRad(curvatureCloud, _radius);
 
     // Step 4: Compute principal curvatures for the whole cloud
     pcl::PrincipalCurvaturesEstimation<pcl::PointXYZRGB, pcl::Normal, pcl::PrincipalCurvatures> ce;
-    ce.setInputCloud(neighborhood);
+    ce.setInputCloud(curvatureCloud);
     ce.setInputNormals(normals);
-    // ce.setSearchMethod(kdtree);
     ce.setRadiusSearch(_radius);
 
     pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr curvatures(new pcl::PointCloud<pcl::PrincipalCurvatures>);
     ce.compute(*curvatures);
 
-    // Step 5: Print out results
+    // Step 5: Compute curvature sign
+    float sign = 1.0f;
+    // Calculate the average Z of the neighbors
+    float sum_z = 0.0f;
+    for (const auto& point : _cloud->points) {
+        sum_z += point.z;
+    }
+    float average_z = sum_z / _cloud->size();
+    // If the point is above its neighbors (dome), assign a negative sign.
+    // If it's below (bowl), the sign remains positive.
+    if (_point.z > average_z) {
+        sign = -1.0f;
+    }
+
+    // Step 6: Print out results
     const auto& curvature = curvatures->points[target_idx];
-    float pc1 = curvature.pc1;
-    float pc2 = curvature.pc2;
+    float pc1 = sign*curvature.pc1;
+    float pc2 = sign*curvature.pc2;
     float mean_curvature = (pc1 + pc2) / 2.0f;
     float gaussian_curvature = pc1 * pc2;
 
@@ -1911,14 +1920,19 @@ float computePointsDist3D(
     return std::sqrt(dx * dx + dy * dy + dz * dz);
 }
 
-std::vector<std::vector<float>> computeDistToPointsOfInterest(
+DistsOfInterest computeDistToPointsOfInterest(
     const pcl::PointXYZRGB& _landingPoint,
     const std::vector<pcl::PointXYZRGB>& _pointsOfInterest,
     const pcl_tools::BoundingBox& _treeBB)
 {
-    std::vector<std::vector<float>> output;
-    output.reserve(_pointsOfInterest.size());
+    if(_pointsOfInterest.size() != 2){
+        return DistsOfInterest();
+    }
 
+    std::vector<std::vector<float>> vec_distsOfInterest;
+    vec_distsOfInterest.reserve(_pointsOfInterest.size());
+
+    float min_diameter = std::min(_treeBB.width, _treeBB.height);
     for(size_t i = 0; i < _pointsOfInterest.size(); ++i)
     {
         const pcl::PointXYZRGB pointOfInterest = _pointsOfInterest[i];
@@ -1926,7 +1940,6 @@ std::vector<std::vector<float>> computeDistToPointsOfInterest(
         float dist2D = computePointsDist2D(_landingPoint, pointOfInterest);
         float dist3D = computePointsDist3D(_landingPoint, pointOfInterest);
 
-        float min_diameter = std::min(_treeBB.width, _treeBB.height);
         float ratio2D = dist2D/min_diameter;
         float ratio3D = dist3D/min_diameter;
 
@@ -1935,7 +1948,7 @@ std::vector<std::vector<float>> computeDistToPointsOfInterest(
         row.push_back(dist3D);
         row.push_back(ratio2D);
         row.push_back(ratio3D);
-        output.emplace_back(row);
+        vec_distsOfInterest.emplace_back(row);
 
         std::cout << "Distance to Point of interest #" << i << " 2D: " << dist2D << std::endl;
         std::cout << "Distance to Point of interest #" << i << " 3D: " << dist3D << std::endl;
@@ -1943,13 +1956,26 @@ std::vector<std::vector<float>> computeDistToPointsOfInterest(
         std::cout << "Ratio Distance 3D to Point of interest over tree diameter #" << i << ": " << ratio3D << std::endl;
     }
 
-    return output;
+    DistsOfInterest distsOfInterest;
+
+    distsOfInterest.distTreeCenter2D = vec_distsOfInterest[0][0];
+    distsOfInterest.distTreeCenter3D = vec_distsOfInterest[0][1];
+    distsOfInterest.ratioTreeCenter2D = vec_distsOfInterest[0][2];
+    distsOfInterest.ratioTreeCenter3D = vec_distsOfInterest[0][3];
+
+    distsOfInterest.distTreeHighestPoint2D = vec_distsOfInterest[1][0];
+    distsOfInterest.distTreeHighestPoint3D = vec_distsOfInterest[1][1];
+    distsOfInterest.ratioTreeHighestPoint2D = vec_distsOfInterest[1][2];
+    distsOfInterest.ratioTreeHighestPoint3D = vec_distsOfInterest[1][3];
+
+    return distsOfInterest;
 }
 
 Features computeFeatures(
     const pcl::PointXYZRGB& _landingPoint,
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _landingSurfaceCloud,
+    const float& _lz_factor,
     const float& _radius)
 {
     BoundingBox treeBB = getBB(_treeCloud);
@@ -1959,14 +1985,13 @@ Features computeFeatures(
 
     pcl::PointXYZRGB highestPoint = getHighestPoint(_treeCloud);
 
-    pcl::PrincipalCurvatures curvatures = computeCurvature(_landingSurfaceCloud, _landingPoint, 2.0*_radius);
-    float density = computeSurfaceDensity(_landingSurfaceCloud, _radius);
+    pcl::PrincipalCurvatures curvatures = computeCurvature(_landingSurfaceCloud, _landingPoint, _lz_factor*_radius);
+    float density = computeSurfaceDensity(_landingSurfaceCloud, _lz_factor*_radius);
     Eigen::Vector4f coef = computePlane(_landingSurfaceCloud);
     float slope = computePlaneAngle(coef);
     float stdDev = computeStandardDeviation(_landingSurfaceCloud, coef);
-    float distTop = highestPoint.z - _landingPoint.z;
 
-    std::vector<std::vector<float>> distsOfInterest = computeDistToPointsOfInterest(
+    DistsOfInterest distsOfInterest = computeDistToPointsOfInterest(
         _landingPoint, 
         std::vector<pcl::PointXYZRGB>({
             treeCenterPoint,
@@ -1974,8 +1999,10 @@ Features computeFeatures(
         }),
         treeBB
     );
+    distsOfInterest.distTop = highestPoint.z - _landingPoint.z;
 
-    return Features{curvatures, treeBB, density, slope, stdDev, distTop, distsOfInterest};
+
+    return Features{curvatures, treeBB, density, slope, stdDev, distsOfInterest};
 }
 
 void printPoint(const pcl::PointXYZRGB& _point)

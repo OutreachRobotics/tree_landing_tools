@@ -75,14 +75,27 @@ struct DepthMapData {
     float leafSize;
 };
 
+struct DistsOfInterest {
+    float distTop;
+
+    float distTreeCenter2D;
+    float distTreeCenter3D;
+    float ratioTreeCenter2D;
+    float ratioTreeCenter3D;
+
+    float distTreeHighestPoint2D;
+    float distTreeHighestPoint3D;
+    float ratioTreeHighestPoint2D;
+    float ratioTreeHighestPoint3D;
+};
+
 struct Features {
     pcl::PrincipalCurvatures curvatures;
     pcl_tools::BoundingBox treeBB;
     float density;
     float slope;
     float stdDev;
-    float distTop;
-    std::vector<std::vector<float>> distsOfInterest;
+    DistsOfInterest distsOfInterest;
 };
 
 // Point cloud loading
@@ -266,7 +279,8 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractClosestCluster(
 
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloud(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _cloud,
-    const float _step
+    const float& _radius,
+    const float& _radius_factor = 0.5
 );
 
 void removeNoise(
@@ -323,9 +337,12 @@ void extractSurface(
 );
 
 // Geometric computations
-float computeDensity(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, float radius);
+float computeDensity(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, const float radius);
 
-float computeSurfaceDensity(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, float radius);
+float computeSurfaceDensity(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
+    const float radius
+);
 
 float projectPoint(
     const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr& _cloud,
@@ -367,7 +384,7 @@ float computePointsDist2D(const pcl::PointXYZRGB& point1, const pcl::PointXYZRGB
 
 float computePointsDist3D(const pcl::PointXYZRGB& point1, const pcl::PointXYZRGB& point2);
 
-std::vector<std::vector<float>> computeDistToPointsOfInterest(
+DistsOfInterest computeDistToPointsOfInterest(
     const pcl::PointXYZRGB& _landingPoint,
     const std::vector<pcl::PointXYZRGB>& _pointsOfInterest,
     const pcl_tools::BoundingBox& _treeBB
@@ -377,6 +394,7 @@ Features computeFeatures(
     const pcl::PointXYZRGB& _landingPoint,
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _landingSurfaceCloud,
+    const float& _lz_factor,
     const float& _radius
 );
 
