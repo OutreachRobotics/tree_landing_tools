@@ -1704,6 +1704,26 @@ pcl::PrincipalCurvatures computeCurvature(
     // Step 3: Compute normals for the whole cloud
     pcl::PointCloud<pcl::Normal>::Ptr normals = computeNormalsRad(curvatureCloud, _radius);
 
+    Eigen::Vector3f target_normal(normals->points[target_idx].normal_x,
+                                  normals->points[target_idx].normal_y,
+                                  normals->points[target_idx].normal_z);
+
+    // For a consistent sign relative to the Z-axis, ensure the normal points generally "up"
+    if (target_normal.z() < 0.0f) {
+        target_normal = -target_normal;
+    }
+
+    float deviation_sum = 0.0f;
+    Eigen::Vector3f point_vec(_point.x, _point.y, _point.z);
+    for (const auto& neighbor_point : _cloud->points) {
+        Eigen::Vector3f neighbor_vec(neighbor_point.x, neighbor_point.y, neighbor_point.z);
+        // Vector from our point to its neighbor
+        Eigen::Vector3f diff = neighbor_vec - point_vec;
+        deviation_sum += diff.dot(target_normal);
+    }
+
+    float sign = (deviation_sum > 0.0f) ? 1.0f : -1.0f;
+    
     // Step 4: Compute principal curvatures for the whole cloud
     pcl::PrincipalCurvaturesEstimation<pcl::PointXYZRGB, pcl::Normal, pcl::PrincipalCurvatures> ce;
     ce.setInputCloud(curvatureCloud);
@@ -1713,25 +1733,11 @@ pcl::PrincipalCurvatures computeCurvature(
     pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr curvatures(new pcl::PointCloud<pcl::PrincipalCurvatures>);
     ce.compute(*curvatures);
 
-    // Step 5: Compute curvature sign
-    float sign = 1.0f;
-    // Calculate the average Z of the neighbors
-    float sum_z = 0.0f;
-    for (const auto& point : _cloud->points) {
-        sum_z += point.z;
-    }
-    float average_z = sum_z / _cloud->size();
-    // If the point is above its neighbors (dome), assign a negative sign.
-    // If it's below (bowl), the sign remains positive.
-    if (_point.z > average_z) {
-        sign = -1.0f;
-    }
-
     // Step 6: Print out results
     const auto& curvature = curvatures->points[target_idx];
     float pc1 = sign*curvature.pc1;
     float pc2 = sign*curvature.pc2;
-    float mean_curvature = (pc1 + pc2) / 2.0f;
+    float mean_curvature = sign * (pc1 + pc2) / 2.0f;
     float gaussian_curvature = pc1 * pc2;
 
     std::cout << "Point " << target_idx << ": Principal Curvatures: " << pc1 << ", " << pc2
@@ -1739,6 +1745,14 @@ pcl::PrincipalCurvatures computeCurvature(
                 << ", Gaussian Curvature: " << gaussian_curvature << std::endl;
     std::cout << "  Principal Directions: (" << curvature.principal_curvature_x << ", "
                 << curvature.principal_curvature_y << ", " << curvature.principal_curvature_z << ")" << std::endl;
+
+    if (gaussian_curvature < -1e-5) { // Use a small threshold for floating point errors
+        std::cout << "  Surface Type: Saddle Point" << std::endl;
+    } else if (gaussian_curvature > 1e-5) {
+        std::cout << "  Surface Type: " << (sign > 0 ? "Bowl (Concave)" : "Dome (Convex)") << std::endl;
+    } else {
+        std::cout << "  Surface Type: Plane or Cylinder" << std::endl;
+    }
 
     // Step 6: Return the curvature of the target point (last point in the cloud)
     if (!curvatures->empty()) {
