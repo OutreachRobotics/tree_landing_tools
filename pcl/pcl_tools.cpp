@@ -2019,6 +2019,36 @@ Features computeFeatures(
     return Features{curvatures, treeBB, density, slope, stdDev, distsOfInterest};
 }
 
+std::vector<pcl_tools::Features> computeFeaturesList(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _gridCloud,
+    const float& _landing_zone_factor,
+    const float& _radius,
+    const float& _min_lz_points)
+{
+    std::vector<Features> features_list;
+    for(const auto& point : _gridCloud->points){
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr landingSurfaceCloud(new pcl::PointCloud<pcl::PointXYZRGB>(*_treeCloud));
+        extractNeighborCirclePC(landingSurfaceCloud, point, _landing_zone_factor*_radius);
+
+        if(landingSurfaceCloud->size() < _min_lz_points) {
+            features_list.push_back(Features());
+        }
+
+        Features features = computeFeatures(point, _treeCloud, landingSurfaceCloud, _landing_zone_factor, _radius);
+        features_list.push_back(features);
+    }
+
+    std::sort(features_list.begin(), features_list.end(),
+    [](const pcl_tools::Features& a, const pcl_tools::Features& b) {
+        // This lambda defines the sorting rule: 'a' comes before 'b'
+        // if its ratio is smaller.
+        return a.distsOfInterest.ratioTreeCenter3D < b.distsOfInterest.ratioTreeCenter3D;
+    }); 
+
+    return features_list;
+}
+
 void printPoint(const pcl::PointXYZRGB& _point)
 {
     std::cout << "Point: ("

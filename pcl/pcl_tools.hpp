@@ -398,6 +398,14 @@ Features computeFeatures(
     const float& _radius
 );
 
+std::vector<pcl_tools::Features> computeFeaturesList(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _gridCloud,
+    const float& _landing_zone_factor,
+    const float& _radius,
+    const float& _min_lz_points
+);
+
 // Visualization utilities
 void printPoint(const pcl::PointXYZRGB& point);
 
