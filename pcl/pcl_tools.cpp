@@ -1320,13 +1320,33 @@ std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> extractClusters(
     return extracted_clusters;
 }
 
+bool shouldSelectPoint(
+    const pcl::PointXYZRGB& _point,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
+    const BoundingBox& _treeBB,
+    const float _max_ratio_from_center = 0.5)
+{
+    bool should_select = false;
+
+    pcl::PointXYZRGB treeCenterPoint(_treeBB.centroid[0], _treeBB.centroid[1], 0.0, 255, 255, 255);
+    projectPoint(_treeCloud, treeCenterPoint);
+    float dist3D = computePointsDist3D(_point, treeCenterPoint);
+
+    float min_diameter = std::min(_treeBB.width, _treeBB.height);
+    float ratio3D = dist3D/min_diameter;
+    if(ratio3D < _max_ratio_from_center){should_select = true;}
+    
+    return should_select;
+}
+
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloud(
-    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _cloud,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
     const float& _radius,
-    const float& _radius_factor)
+    const float& _radius_factor,
+    const float _max_ratio_from_center)
 {
     float step = _radius_factor*_radius;
-    BoundingBox bbox = getBB(_cloud);
+    BoundingBox bbox = getBB(_treeCloud);
 
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr gridCloud(new pcl::PointCloud<pcl::PointXYZRGB>());
 
@@ -1346,9 +1366,11 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloud(
             pcl::PointXYZRGB point;
             point.x = x;
             point.y = y;
-            point.z = projectPoint(_cloud, point);
+            point.z = projectPoint(_treeCloud, point);
 
-            gridCloud->push_back(point);
+            if(shouldSelectPoint(point, _treeCloud, bbox, _max_ratio_from_center)) {
+                gridCloud->push_back(point);
+            }
         }
     }
 
@@ -1558,7 +1580,8 @@ pcl::PointIndices findRadiusBoundary(
 void extractRadiusBoundary(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _cloud,
     const pcl::PointIndices _boundaryIdx,
-    const float _searchRadius)
+    const float _searchRadius,
+    const bool _should_invert)
 {
     pcl::PointIndices idx = findRadiusBoundary(
         _cloud,
@@ -1566,7 +1589,7 @@ void extractRadiusBoundary(
         _searchRadius
     );
 
-    _cloud = extractPoints<pcl::PointXYZRGB>(_cloud, idx, false);
+    _cloud = extractPoints<pcl::PointXYZRGB>(_cloud, idx, _should_invert);
 }
 
 pcl::PointIndices findSurface(
@@ -1997,13 +2020,13 @@ Features computeFeatures(
     pcl::PointXYZRGB treeCenterPoint(treeBB.centroid[0], treeBB.centroid[1], 0.0, 255, 255, 255);
     projectPoint(_treeCloud, treeCenterPoint);
 
-    pcl::PointXYZRGB highestPoint = getHighestPoint(_treeCloud);
-
     pcl::PrincipalCurvatures curvatures = computeCurvature(_landingSurfaceCloud, _landingPoint, _lz_factor*_radius);
     float density = computeSurfaceDensity(_landingSurfaceCloud, _lz_factor*_radius);
     Eigen::Vector4f coef = computePlane(_landingSurfaceCloud);
     float slope = computePlaneAngle(coef);
     float stdDev = computeStandardDeviation(_landingSurfaceCloud, coef);
+
+    pcl::PointXYZRGB highestPoint = getHighestPoint(_treeCloud);
 
     DistsOfInterest distsOfInterest = computeDistToPointsOfInterest(
         _landingPoint, 
@@ -2013,10 +2036,62 @@ Features computeFeatures(
         }),
         treeBB
     );
+
     distsOfInterest.distTop = highestPoint.z - _landingPoint.z;
 
-
     return Features{curvatures, treeBB, density, slope, stdDev, distsOfInterest};
+}
+
+Features computeLandingPointFeatures(
+    const pcl::PointXYZRGB& _landingPoint,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud)
+{
+    BoundingBox treeBB = getBB(_treeCloud);
+
+    pcl::PointXYZRGB treeCenterPoint(treeBB.centroid[0], treeBB.centroid[1], 0.0, 255, 255, 255);
+    projectPoint(_treeCloud, treeCenterPoint);
+
+    pcl::PointXYZRGB highestPoint = getHighestPoint(_treeCloud);
+
+    DistsOfInterest distsOfInterest = computeDistToPointsOfInterest(
+        _landingPoint, 
+        std::vector<pcl::PointXYZRGB>({
+            treeCenterPoint,
+            highestPoint
+        }),
+        treeBB
+    );
+
+    distsOfInterest.distTop = highestPoint.z - _landingPoint.z;
+
+    return Features{
+        pcl::PrincipalCurvatures(),
+        treeBB,
+        std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::quiet_NaN(),
+        distsOfInterest
+    };
+}
+
+Features computeLandingZoneFeatures(
+    const pcl::PointXYZRGB& _landingPoint,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _landingSurfaceCloud,
+    const float& _lz_factor,
+    const float& _radius,
+    const Features& _landing_point_features)
+{
+    pcl::PointXYZRGB treeCenterPoint(_landing_point_features.treeBB.centroid[0], _landing_point_features.treeBB.centroid[1], 0.0, 255, 255, 255);
+    projectPoint(_treeCloud, treeCenterPoint);
+
+    pcl::PrincipalCurvatures curvatures = computeCurvature(_landingSurfaceCloud, _landingPoint, _lz_factor*_radius);
+    float density = computeSurfaceDensity(_landingSurfaceCloud, _lz_factor*_radius);
+    Eigen::Vector4f coef = computePlane(_landingSurfaceCloud);
+    float slope = computePlaneAngle(coef);
+    float stdDev = computeStandardDeviation(_landingSurfaceCloud, coef);
+
+    return Features{curvatures, _landing_point_features.treeBB, density, slope, stdDev, _landing_point_features.distsOfInterest};
 }
 
 std::vector<pcl_tools::Features> computeFeaturesList(
@@ -2027,12 +2102,13 @@ std::vector<pcl_tools::Features> computeFeaturesList(
     const float& _min_lz_points)
 {
     std::vector<Features> features_list;
-    for(const auto& point : _gridCloud->points){
+    for(const auto& point : _gridCloud->points) {
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr landingSurfaceCloud(new pcl::PointCloud<pcl::PointXYZRGB>(*_treeCloud));
         extractNeighborCirclePC(landingSurfaceCloud, point, _landing_zone_factor*_radius);
 
         if(landingSurfaceCloud->size() < _min_lz_points) {
             features_list.push_back(Features());
+            continue;
         }
 
         Features features = computeFeatures(point, _treeCloud, landingSurfaceCloud, _landing_zone_factor, _radius);

@@ -278,9 +278,10 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractClosestCluster(
 );
 
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloud(
-    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _cloud,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
     const float& _radius,
-    const float& _radius_factor = 0.5
+    const float& _radius_factor = 0.2,
+    const float _max_ratio_from_center = 0.5
 );
 
 void removeNoise(
@@ -321,9 +322,10 @@ pcl::PointIndices findRadiusBoundary(
 );
 
 void extractRadiusBoundary(
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr& cloud,
-    const pcl::PointIndices boundaryIdx,
-    const float searchRadius
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _cloud,
+    const pcl::PointIndices _boundaryIdx,
+    const float _searchRadius,
+    const bool _should_invert = false
 );
 
 pcl::PointIndices findSurface(
@@ -396,6 +398,20 @@ Features computeFeatures(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _landingSurfaceCloud,
     const float& _lz_factor,
     const float& _radius
+);
+
+Features computeLandingPointFeatures(
+    const pcl::PointXYZRGB& _landingPoint,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud
+);
+
+Features computeLandingZoneFeatures(
+    const pcl::PointXYZRGB& _landingPoint,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _landingSurfaceCloud,
+    const float& _lz_factor,
+    const float& _radius,
+    const Features& _tree_features
 );
 
 std::vector<pcl_tools::Features> computeFeaturesList(
