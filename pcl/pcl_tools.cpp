@@ -1787,13 +1787,15 @@ pcl::PrincipalCurvatures computeCurvature(
     }
 }
 
-Eigen::Vector4f computePlane(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud)
+pcl::ModelCoefficients::Ptr computePlane(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud)
 {
     if (_cloud->empty()) {
-        // throw std::runtime_error("Input cloud for computeCurvature cannot be empty.");
-        std::cout << "Error: Input cloud for computePlane cannot be empty." << std::endl;
-        return Eigen::Vector4f();
+        std::cerr << "Error: Input cloud for computePlane cannot be empty." << std::endl;
+        // Return a null pointer to indicate failure, which is standard for pointer return types.
+        return nullptr;
     }
+
+    // --- The plane finding logic is the same ---
 
     // Compute the centroid of the point cloud
     Eigen::Vector4f centroid;
@@ -1803,37 +1805,40 @@ Eigen::Vector4f computePlane(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud
     pcl::PCA<pcl::PointXYZRGB> pca;
     pca.setInputCloud(_cloud);
     Eigen::Matrix3f eigenvectors = pca.getEigenVectors();
-    // Eigen::Vector3f eigenvalues = pca.getEigenValues();
 
     // The eigenvector corresponding to the smallest eigenvalue is the normal of the plane
-    Eigen::Vector3f normal = eigenvectors.col(2); // Third column (smallest eigenvalue)
+    Eigen::Vector3f normal = eigenvectors.col(2);
 
-    // Compute the plane coefficients (ax + by + cz + d = 0)
+    // Compute the plane coefficients (Ax + By + Cz + D = 0)
     float a = normal[0];
     float b = normal[1];
     float c = normal[2];
     float d = -(normal.dot(centroid.head<3>()));
 
-    // Print the plane coefficients
-    std::cout << "Plane coefficients (ax + by + cz + d = 0):\n";
-    std::cout << "a: " << a << "\n";
-    std::cout << "b: " << b << "\n";
-    std::cout << "c: " << c << "\n";
-    std::cout << "d: " << d << "\n";
+    // --- The return type creation is new ---
 
-    Eigen::Vector4f coefficients;
-    coefficients[0] = a;
-    coefficients[1] = b;
-    coefficients[2] = c;
-    coefficients[3] = d;
+    // Create and populate the ModelCoefficients object
+    pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients());
+    coefficients->values.resize(4);
+    coefficients->values[0] = a;
+    coefficients->values[1] = b;
+    coefficients->values[2] = c;
+    coefficients->values[3] = d;
+    
+    // Print the plane coefficients for verification
+    std::cout << "Plane coefficients (Ax + By + Cz + D = 0):\n";
+    std::cout << "a: " << coefficients->values[0] << "\n";
+    std::cout << "b: " << coefficients->values[1] << "\n";
+    std::cout << "c: " << coefficients->values[2] << "\n";
+    std::cout << "d: " << coefficients->values[3] << "\n";
 
     return coefficients;
 }
 
-float computePlaneAngle(const Eigen::Vector4f& _coefficients)
+float computePlaneAngle(const pcl::ModelCoefficients::Ptr _coefficients)
 {
     // Extract the normal vector (nx, ny, nz)
-    Eigen::Vector3f normal(_coefficients[0], _coefficients[1], _coefficients[2]);
+    Eigen::Vector3f normal(_coefficients->values[0], _coefficients->values[1], _coefficients->values[2]);
 
     // Normalize the normal vector (in case it's not already normalized)
     normal.normalize();
@@ -1861,23 +1866,23 @@ float computePlaneAngle(const Eigen::Vector4f& _coefficients)
     return slope;
 }
 
-float pointToPlaneDistance(const pcl::PointXYZRGB& _point, const Eigen::Vector4f& _coefficients)
+float pointToPlaneDistance(const pcl::PointXYZRGB& _point, const pcl::ModelCoefficients::Ptr _coefficients)
 {
-    float a = _coefficients[0];
-    float b = _coefficients[1];
-    float c = _coefficients[2];
-    float d = _coefficients[3];
+    float a = _coefficients->values[0];
+    float b = _coefficients->values[1];
+    float c = _coefficients->values[2];
+    float d = _coefficients->values[3];
 
     // Compute the distance
     float distance = std::abs(a * _point.x + b * _point.y + c * _point.z + d);
     return distance;
 }
 
-float computeStandardDeviation(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud, const Eigen::Vector4f& coefficients)
+float computeStandardDeviation(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud, const pcl::ModelCoefficients::Ptr _coefficients)
 {
     std::vector<float> distances;
     for (const auto& point : _cloud->points) {
-        float distance = pointToPlaneDistance(point, coefficients);
+        float distance = pointToPlaneDistance(point, _coefficients);
         distances.push_back(distance);
     }
 
@@ -2022,7 +2027,7 @@ Features computeFeatures(
 
     pcl::PrincipalCurvatures curvatures = computeCurvature(_landingSurfaceCloud, _landingPoint, _lz_factor*_radius);
     float density = computeSurfaceDensity(_landingSurfaceCloud, _lz_factor*_radius);
-    Eigen::Vector4f coef = computePlane(_landingSurfaceCloud);
+    pcl::ModelCoefficients::Ptr coef = computePlane(_landingSurfaceCloud);
     float slope = computePlaneAngle(coef);
     float stdDev = computeStandardDeviation(_landingSurfaceCloud, coef);
 
@@ -2039,7 +2044,7 @@ Features computeFeatures(
 
     distsOfInterest.distTop = highestPoint.z - _landingPoint.z;
 
-    return Features{curvatures, treeBB, density, slope, stdDev, distsOfInterest};
+    return Features{curvatures, treeBB, density, slope, stdDev, distsOfInterest, coef};
 }
 
 Features computeLandingPointFeatures(
@@ -2070,7 +2075,8 @@ Features computeLandingPointFeatures(
         std::numeric_limits<float>::quiet_NaN(),
         std::numeric_limits<float>::quiet_NaN(),
         std::numeric_limits<float>::quiet_NaN(),
-        distsOfInterest
+        distsOfInterest,
+        pcl::ModelCoefficients::Ptr()
     };
 }
 
@@ -2087,11 +2093,11 @@ Features computeLandingZoneFeatures(
 
     pcl::PrincipalCurvatures curvatures = computeCurvature(_landingSurfaceCloud, _landingPoint, _lz_factor*_radius);
     float density = computeSurfaceDensity(_landingSurfaceCloud, _lz_factor*_radius);
-    Eigen::Vector4f coef = computePlane(_landingSurfaceCloud);
+    pcl::ModelCoefficients::Ptr coef = computePlane(_landingSurfaceCloud);
     float slope = computePlaneAngle(coef);
     float stdDev = computeStandardDeviation(_landingSurfaceCloud, coef);
 
-    return Features{curvatures, _landing_point_features.treeBB, density, slope, stdDev, _landing_point_features.distsOfInterest};
+    return Features{curvatures, _landing_point_features.treeBB, density, slope, stdDev, _landing_point_features.distsOfInterest, coef};
 }
 
 std::vector<pcl_tools::Features> computeFeaturesList(
@@ -2205,8 +2211,9 @@ bool checkInboundPoints(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _ogCloud, c
     return isPointInBound;
 }
 
-std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centerClouds(
-    const std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr>& _clouds)
+std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centerItems4Viewing(
+    const std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> _clouds,
+    const pcl::ModelCoefficients::Ptr _plane)
 {
     // Create a vector to store the new, centered clouds
     std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centered_clouds;
@@ -2233,6 +2240,16 @@ std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centerClouds(
         centered_clouds.push_back(centered_cloud);
     }
 
+    if(_plane != nullptr) {
+        if (_plane && !_plane->values.empty()) {
+            // Convert the plane's std::vector coefficients to an Eigen::Vector4f
+            Eigen::Vector4f input_plane_coeffs(_plane->values.data());
+            Eigen::Vector4f transformed_plane_coeffs;
+            pcl::transformPlane(input_plane_coeffs, transformed_plane_coeffs, transform);
+            Eigen::Map<Eigen::Vector4f>(_plane->values.data()) = transformed_plane_coeffs;
+        }
+    }
+
     return centered_clouds;
 }
 
@@ -2243,16 +2260,17 @@ void addCloud2View(pcl::visualization::PCLVisualizer::Ptr _viewer, pcl::PointClo
     _viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, _name);
 }
 
-void view(const std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> _clouds)
+void view(const std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> _clouds, const pcl::ModelCoefficients::Ptr _plane)
 {
     pcl::visualization::PCLVisualizer::Ptr viewer(new pcl::visualization::PCLVisualizer("3D Viewer"));
     viewer->setBackgroundColor(0, 0, 0);
-    std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centered_clouds = centerClouds(_clouds);
+    std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centered_clouds = centerItems4Viewing(_clouds, _plane);
     int i = 0;
     for (pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud : centered_clouds) {
         addCloud2View(viewer, cloud, "cloud" + std::to_string(i));
         ++i;
     }
+    if(_plane != nullptr){viewer->addPlane(*_plane, "plane");}
     viewer->addCoordinateSystem(1.0);
     viewer->initCameraParameters();
     // https://github.com/PointCloudLibrary/pcl/issues/5237#issuecomment-1114255056

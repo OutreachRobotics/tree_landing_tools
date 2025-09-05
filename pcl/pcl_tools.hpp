@@ -96,6 +96,7 @@ struct Features {
     float slope;
     float stdDev;
     DistsOfInterest distsOfInterest;
+    pcl::ModelCoefficients::Ptr plane;
 };
 
 // Point cloud loading
@@ -358,15 +359,16 @@ pcl::PrincipalCurvatures computeCurvature(
     float radius
 );
 
-Eigen::Vector4f computePlane(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
+// Eigen::Vector4f computePlane(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
+pcl::ModelCoefficients::Ptr computePlane(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
 
-float computePlaneAngle(const Eigen::Vector4f& coefficients);
+float computePlaneAngle(const pcl::ModelCoefficients::Ptr coefficients);
 
-float pointToPlaneDistance(const pcl::PointXYZRGB& point, const Eigen::Vector4f& coefficients);
+float pointToPlaneDistance(const pcl::PointXYZRGB& point, const pcl::ModelCoefficients::Ptr coefficients);
 
 float computeStandardDeviation(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
-    const Eigen::Vector4f& coefficients
+    const pcl::ModelCoefficients::Ptr coefficients
 );
 
 pcl::PointIndices findLocalExtremums(
@@ -441,7 +443,7 @@ bool checkInboundPoints(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _ogCloud, c
 
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr centerCloud(pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud);
 
-void view(const std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> clouds);
+void view(const std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> clouds, const pcl::ModelCoefficients::Ptr _plane = nullptr);
 
 } // namespace pcl_tools
 
