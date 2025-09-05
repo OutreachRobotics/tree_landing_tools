@@ -1320,25 +1320,6 @@ std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> extractClusters(
     return extracted_clusters;
 }
 
-bool shouldSelectPoint(
-    const pcl::PointXYZRGB& _point,
-    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
-    const BoundingBox& _treeBB,
-    const float _max_ratio_from_center = 0.5)
-{
-    bool should_select = false;
-
-    pcl::PointXYZRGB treeCenterPoint(_treeBB.centroid[0], _treeBB.centroid[1], 0.0, 255, 255, 255);
-    projectPoint(_treeCloud, treeCenterPoint);
-    float dist3D = computePointsDist3D(_point, treeCenterPoint);
-
-    float min_diameter = std::min(_treeBB.width, _treeBB.height);
-    float ratio3D = dist3D/min_diameter;
-    if(ratio3D < _max_ratio_from_center){should_select = true;}
-    
-    return should_select;
-}
-
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloud(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
     const float& _radius,
@@ -1346,20 +1327,22 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloud(
     const float _max_ratio_from_center)
 {
     float step = _radius_factor*_radius;
-    BoundingBox bbox = getBB(_treeCloud);
-
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr gridCloud(new pcl::PointCloud<pcl::PointXYZRGB>());
+    BoundingBox treeBB = getBB(_treeCloud);
 
     // Check for zero spacing to prevent an infinite loop.
     if (step <= 0) {
-        return gridCloud; // Return empty cloud if spacing is invalid
+        return pcl::PointCloud<pcl::PointXYZRGB>::Ptr(); // Return empty cloud if spacing is invalid
     }
 
-    float min_x = bbox.min_x + _radius;
-    float max_x = bbox.max_x - _radius;
-    float min_y = bbox.min_y + _radius;
-    float max_y = bbox.max_y - _radius;
+    float min_x = treeBB.min_x + _radius;
+    float max_x = treeBB.max_x - _radius;
+    float min_y = treeBB.min_y + _radius;
+    float max_y = treeBB.max_y - _radius;
 
+    pcl::PointXYZRGB treeCenterPoint(treeBB.centroid[0], treeBB.centroid[1], 0.0, 255, 255, 255);
+    projectPoint(_treeCloud, treeCenterPoint);
+
+    std::vector<std::pair<pcl::PointXYZRGB,double>> candidate_points;
     for (float x = min_x; x <= max_x; x += step) {
         for (float y = min_y; y <= max_y; y += step) {
             
@@ -1368,10 +1351,25 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloud(
             point.y = y;
             point.z = projectPoint(_treeCloud, point);
 
-            if(shouldSelectPoint(point, _treeCloud, bbox, _max_ratio_from_center)) {
-                gridCloud->push_back(point);
+            float dist3D = computePointsDist3D(point, treeCenterPoint);
+            float min_diameter = std::min(treeBB.width, treeBB.height);
+            float ratio3D = dist3D/min_diameter;
+
+            if(ratio3D < _max_ratio_from_center) {
+                candidate_points.push_back({point, ratio3D});
             }
         }
+    }
+
+    std::sort(candidate_points.begin(), candidate_points.end(), 
+        [](const std::pair<pcl::PointXYZRGB,double>& a, const std::pair<pcl::PointXYZRGB,double>& b) {
+            return a.second < b.second;
+    });
+
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr gridCloud(new pcl::PointCloud<pcl::PointXYZRGB>());
+    gridCloud->reserve(candidate_points.size()); // Optimize memory allocation
+    for (const auto& candidate : candidate_points) {
+        gridCloud->emplace_back(candidate.first);
     }
 
     return gridCloud;
@@ -2121,13 +2119,6 @@ std::vector<pcl_tools::Features> computeFeaturesList(
         features_list.push_back(features);
     }
 
-    std::sort(features_list.begin(), features_list.end(),
-    [](const pcl_tools::Features& a, const pcl_tools::Features& b) {
-        // This lambda defines the sorting rule: 'a' comes before 'b'
-        // if its ratio is smaller.
-        return a.distsOfInterest.ratioTreeCenter3D < b.distsOfInterest.ratioTreeCenter3D;
-    }); 
-
     return features_list;
 }
 
@@ -2213,7 +2204,8 @@ bool checkInboundPoints(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _ogCloud, c
 
 std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centerItems4Viewing(
     const std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> _clouds,
-    const pcl::ModelCoefficients::Ptr _plane)
+    pcl::ModelCoefficients::Ptr _plane,
+    pcl::PointXYZRGB* _sphere)
 {
     // Create a vector to store the new, centered clouds
     std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centered_clouds;
@@ -2240,14 +2232,25 @@ std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centerItems4Viewing(
         centered_clouds.push_back(centered_cloud);
     }
 
-    if(_plane != nullptr) {
-        if (_plane && !_plane->values.empty()) {
-            // Convert the plane's std::vector coefficients to an Eigen::Vector4f
-            Eigen::Vector4f input_plane_coeffs(_plane->values.data());
-            Eigen::Vector4f transformed_plane_coeffs;
-            pcl::transformPlane(input_plane_coeffs, transformed_plane_coeffs, transform);
-            Eigen::Map<Eigen::Vector4f>(_plane->values.data()) = transformed_plane_coeffs;
-        }
+    if(_plane != nullptr && !_plane->values.empty()) {
+        // Convert the plane's std::vector coefficients to an Eigen::Vector4f
+        Eigen::Vector4f input_plane_coeffs(_plane->values.data());
+        Eigen::Vector4f transformed_plane_coeffs;
+        pcl::transformPlane(input_plane_coeffs, transformed_plane_coeffs, transform);
+        Eigen::Map<Eigen::Vector4f>(_plane->values.data()) = transformed_plane_coeffs;
+    }
+
+    // pcl::PointXYZRGB* _sphere;
+    if(_sphere != nullptr) {
+        Eigen::Vector3f point_as_eigen = _sphere->getVector3fMap();
+
+        // 2. Perform the transformation using Eigen's multiplication
+        Eigen::Vector3f transformed_point = transform * point_as_eigen;
+
+        // 3. Copy the transformed coordinates back to your original PCL point
+        _sphere->x = transformed_point.x();
+        _sphere->y = transformed_point.y();
+        _sphere->z = transformed_point.z();
     }
 
     return centered_clouds;
@@ -2260,17 +2263,27 @@ void addCloud2View(pcl::visualization::PCLVisualizer::Ptr _viewer, pcl::PointClo
     _viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, _name);
 }
 
-void view(const std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> _clouds, const pcl::ModelCoefficients::Ptr _plane)
+void view(
+    const std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> _clouds,
+    const pcl::ModelCoefficients::Ptr _plane,
+    const pcl::PointXYZRGB* _sphere)
 {
+    pcl::ModelCoefficients::Ptr view_plane = _plane;
+    pcl::PointXYZRGB view_sphere = *_sphere;
+
     pcl::visualization::PCLVisualizer::Ptr viewer(new pcl::visualization::PCLVisualizer("3D Viewer"));
     viewer->setBackgroundColor(0, 0, 0);
-    std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centered_clouds = centerItems4Viewing(_clouds, _plane);
+    std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centered_clouds = centerItems4Viewing(_clouds, view_plane, &view_sphere);
     int i = 0;
     for (pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud : centered_clouds) {
         addCloud2View(viewer, cloud, "cloud" + std::to_string(i));
         ++i;
     }
-    if(_plane != nullptr){viewer->addPlane(*_plane, "plane");}
+    if(view_plane != nullptr){viewer->addPlane(*view_plane, "plane");}
+    if(&view_sphere != nullptr) {
+        double radius = 0.2;
+        viewer->addSphere(view_sphere, radius, 0, 255, 0, "centroid");
+    }
     viewer->addCoordinateSystem(1.0);
     viewer->initCameraParameters();
     // https://github.com/PointCloudLibrary/pcl/issues/5237#issuecomment-1114255056

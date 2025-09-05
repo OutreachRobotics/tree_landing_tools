@@ -443,7 +443,11 @@ bool checkInboundPoints(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _ogCloud, c
 
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr centerCloud(pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud);
 
-void view(const std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> clouds, const pcl::ModelCoefficients::Ptr _plane = nullptr);
+void view(
+    const std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> clouds,
+    const pcl::ModelCoefficients::Ptr _plane = nullptr,
+    const pcl::PointXYZRGB* _sphere = nullptr
+);
 
 } // namespace pcl_tools
 
