@@ -16,6 +16,7 @@
 #include <pcl/common/pca.h>
 #include <pcl/common/transforms.h>
 #include <pcl/features/boundary.h>
+#include <pcl/features/moment_of_inertia_estimation.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/features/principal_curvatures.h>
 #include <pcl/filters/extract_indices.h>
@@ -67,6 +68,14 @@ struct BoundingBox {
     {}
 };
 
+struct OrientedBoundingBox {
+    Eigen::Vector3f centroid;
+    Eigen::Quaternionf rotation;
+    float width;  // Corresponds to the x-dimension of the box
+    float height; // Corresponds to the y-dimension of the box
+    float depth;  // Corresponds to the z-dimension of the box
+};
+
 struct DepthMapData {
     cv::Mat depthMap;
     std::map<std::pair<int, int>, int> grid; // The grid-to-index map
@@ -97,7 +106,7 @@ struct DistsOfInterest {
 
 struct Features {
     pcl::PrincipalCurvatures curvatures;
-    pcl_tools::BoundingBox treeBB;
+    pcl_tools::OrientedBoundingBox treeBB;
     float density;
     float slope;
     float stdDev;
@@ -216,6 +225,8 @@ pcl_tools::BoundingBox getBB(
     const std::string& depthAxis = "z"
 );
 
+OrientedBoundingBox getOBB(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _pointCloud);
+
 pcl::PointXYZRGB getHighestPoint(pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloud);
 
 void decimatePC(
@@ -286,7 +297,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractClosestCluster(
 
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloud(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
-    const BoundingBox& _treeBB,
+    const OrientedBoundingBox& _treeBB,
     const float& _radius,
     const float& _radius_factor = 0.2,
     const float _max_ratio_from_center = 0.5
@@ -452,6 +463,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr centerCloud(pcl::PointCloud<pcl::PointXYZ
 
 void view(
     const std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr>& clouds,
+    OrientedBoundingBox _obb,
     const std::vector<pcl::PointXYZRGB>* _spheres = nullptr,
     const pcl::ModelCoefficients::Ptr _plane = nullptr
 );

@@ -334,6 +334,74 @@ pcl_tools::BoundingBox getBB(
     return boundingBox;
 }
 
+double distanceToOBBCenter(
+    const pcl::PointXYZRGB& _point,
+    const OrientedBoundingBox& _obb)
+{
+    Eigen::Vector2f difference = _point.getVector3fMap().head<2>() - _obb.centroid.head<2>();
+    return difference.norm();
+}
+
+double distanceToOBB(
+    const pcl::PointXYZRGB& _point,
+    const OrientedBoundingBox& _obb)
+{
+    // Step 1: Transform the point into the OBB's local coordinate system.
+    // This step remains the same as the 3D version.
+    Eigen::Vector3f point_translated = _point.getVector3fMap() - _obb.centroid;
+    Eigen::Vector3f point_local = _obb.rotation.conjugate() * point_translated;
+
+    // Step 2: Calculate the distance from the local point to the AABB,
+    // but only for the X and Y axes.
+    Eigen::Vector3f half_extents(_obb.width / 2.0f, _obb.height / 2.0f, _obb.depth / 2.0f);
+
+    // d is the vector from the point to the box boundary.
+    // Its components will be negative if the point is inside on that axis.
+    Eigen::Vector2f d = point_local.head<2>().cwiseAbs() - half_extents.head<2>();
+
+    // Step 3: Calculate the final signed distance.
+    // This combines the external distance (from positive components of d)
+    // and the internal distance (from the largest negative component of d).
+    double outside_distance = d.cwiseMax(0.0f).norm();
+    double inside_distance = std::min(0.0f, d.maxCoeff());
+
+    return outside_distance + inside_distance;
+}
+
+OrientedBoundingBox getOBB(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _pointCloud)
+{
+    // 1. Compute the moment of inertia and extraction class
+    pcl::MomentOfInertiaEstimation<pcl::PointXYZRGB> feature_extractor;
+    feature_extractor.setInputCloud(_pointCloud);
+    feature_extractor.compute();
+
+    // 2. Define variables to store OBB properties
+    // *FIX*: The position variable must match the point type of the cloud
+    pcl::PointXYZRGB obb_position; 
+    Eigen::Matrix3f obb_rotation_matrix;
+    pcl::PointXYZRGB min_point_OBB;
+    pcl::PointXYZRGB max_point_OBB;
+
+    // 3. Get the OBB
+    // This call will now work correctly
+    feature_extractor.getOBB(min_point_OBB, max_point_OBB, obb_position, obb_rotation_matrix);
+    
+    // 4. Create a quaternion from the rotation matrix
+    Eigen::Quaternionf obb_quaternion(obb_rotation_matrix);
+
+    // 5. Construct the return object
+    OrientedBoundingBox obb;
+    obb.centroid = Eigen::Vector3f(obb_position.x, obb_position.y, obb_position.z);
+    obb.rotation = obb_quaternion.normalized();
+    
+    // 6. Calculate dimensions
+    obb.width = max_point_OBB.x - min_point_OBB.x;
+    obb.height = max_point_OBB.y - min_point_OBB.y;
+    obb.depth = max_point_OBB.z - min_point_OBB.z;
+    
+    return obb;
+}
+
 pcl::PointXYZRGB getHighestPoint(pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud)
 {
     // Initialize the highest point with the first point in the cloud
@@ -1322,7 +1390,7 @@ std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> extractClusters(
 
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloud(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
-    const BoundingBox& _treeBB,
+    const OrientedBoundingBox& _treeBB,
     const float& _radius,
     const float& _radius_factor,
     const float _max_ratio_from_center)
@@ -1334,10 +1402,18 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloud(
         return pcl::PointCloud<pcl::PointXYZRGB>::Ptr(); // Return empty cloud if spacing is invalid
     }
 
-    float min_x = _treeBB.min_x + _radius;
-    float max_x = _treeBB.max_x - _radius;
-    float min_y = _treeBB.min_y + _radius;
-    float max_y = _treeBB.max_y - _radius;
+    float half_width = _treeBB.width / 2.0f;
+    float half_height = _treeBB.height / 2.0f;
+
+    float min_local_x = -half_width + _radius;
+    float max_local_x = half_width - _radius;
+    float min_local_y = -half_height + _radius;
+    float max_local_y = half_height - _radius;
+
+    float min_x = min_local_x + _radius;
+    float max_x = max_local_x - _radius;
+    float min_y = min_local_y + _radius;
+    float max_y = max_local_y - _radius;
 
     pcl::PointXYZRGB treeCenterPoint(_treeBB.centroid[0], _treeBB.centroid[1], 0.0, 255, 255, 255);
     projectPoint(_treeCloud, treeCenterPoint);
@@ -1382,7 +1458,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloud(
     return gridCloud;
 }
 
-double distanceToBoundingBoxSq(const pcl::PointXYZRGB& _point, const pcl_tools::BoundingBox& _bbox, bool is_2d = true)
+double distanceToBBSq(const pcl::PointXYZRGB& _point, const pcl_tools::BoundingBox& _bbox, bool is_2d = true)
 {
     // First, check if the point is inside the bounding box
     bool is_inside_2d = (_point.x >= _bbox.min_x && _point.x <= _bbox.max_x &&
@@ -1427,15 +1503,16 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractClosestCluster(
     }
 
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr closest_cluster = nullptr;
-    double min_distance_sq = std::numeric_limits<double>::max();
-
+    double min_distance = std::numeric_limits<double>::max();
     for (const auto& cluster : extracted_clusters)
     {
-        pcl_tools::BoundingBox bbox = getBB(cluster);
-        double dist_sq = distanceToBoundingBoxSq(_point, bbox);
+        OrientedBoundingBox oBbox = getOBB(cluster);
+        // double dist = distanceToOBB(_point, oBbox);
+        double dist = distanceToOBBCenter(_point, oBbox);
+        // double dist_sq = distanceToBBSq(_point, bbox);
 
-        if (dist_sq < min_distance_sq) {
-            min_distance_sq = dist_sq;
+        if (dist < min_distance) {
+            min_distance = dist;
             closest_cluster = cluster;
         }
     }
@@ -1967,20 +2044,20 @@ float computePointsDist3D(
     return std::sqrt(dx * dx + dy * dy + dz * dz);
 }
 
-float computeDist2BB(
-    const pcl::PointXYZRGB& _landingPoint,
-    const BoundingBox& _treeBB) {
-    float min_x_dist = std::min(std::abs(_treeBB.min_x - _landingPoint.x), std::abs(_treeBB.max_x - _landingPoint.x));
-    float min_y_dist = std::min(std::abs(_treeBB.min_y - _landingPoint.y), std::abs(_treeBB.max_y - _landingPoint.y));
-    float min_dist = std::min(min_x_dist, min_y_dist);
+// float computeMinDistToBB(
+//     const pcl::PointXYZRGB& _landingPoint,
+//     const BoundingBox& _treeBB) {
+//     float min_x_dist = std::min(_landingPoint.x - _treeBB.min_x, _treeBB.max_x - _landingPoint.x);
+//     float min_y_dist = std::min(_landingPoint.y - _treeBB.min_y, _treeBB.max_y - _landingPoint.y);
+//     float min_dist = std::min(min_x_dist, min_y_dist);
 
-    return min_dist;
-}
+//     return min_dist;
+// }
 
 DistsOfInterest computeDistToPointsOfInterest(
     const pcl::PointXYZRGB& _landingPoint,
     const std::vector<pcl::PointXYZRGB>& _pointsOfInterest,
-    const pcl_tools::BoundingBox& _treeBB)
+    const pcl_tools::OrientedBoundingBox& _treeBB)
 {
     if(_pointsOfInterest.size() != 3){
         std::cout << "_pointsOfInterest != 3 in computeDistToPointsOfInterest()" << std::endl;
@@ -2031,7 +2108,7 @@ DistsOfInterest computeDistToPointsOfInterest(
     distsOfInterest.ratioTreeMidwayPoint2D = vec_distsOfInterest[2][2];
     distsOfInterest.ratioTreeMidwayPoint3D = vec_distsOfInterest[2][3];
 
-    distsOfInterest.distBbox = computeDist2BB(_landingPoint, _treeBB);
+    distsOfInterest.distBbox = distanceToOBB(_landingPoint, _treeBB);
 
     return distsOfInterest;
 }
@@ -2043,7 +2120,7 @@ Features computeFeatures(
     const float& _lz_factor,
     const float& _radius)
 {
-    BoundingBox treeBB = getBB(_treeCloud);
+    OrientedBoundingBox treeBB = getOBB(_treeCloud);
 
     pcl::PointXYZRGB treeCenterPoint(treeBB.centroid[0], treeBB.centroid[1], 0.0, 255, 255, 255);
     projectPoint(_treeCloud, treeCenterPoint);
@@ -2080,7 +2157,7 @@ Features computeLandingPointFeatures(
     const pcl::PointXYZRGB& _landingPoint,
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud)
 {
-    BoundingBox treeBB = getBB(_treeCloud);
+    OrientedBoundingBox treeBB = getOBB(_treeCloud);
 
     pcl::PointXYZRGB treeCenterPoint(treeBB.centroid[0], treeBB.centroid[1], 0.0, 255, 255, 255);
     projectPoint(_treeCloud, treeCenterPoint);
@@ -2235,6 +2312,7 @@ bool checkInboundPoints(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _ogCloud, c
 
 std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centerItems4Viewing(
     const std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> _clouds,
+    OrientedBoundingBox& _obb,
     std::vector<pcl::PointXYZRGB>* _spheres = nullptr,
     pcl::ModelCoefficients::Ptr _plane = nullptr)
 {
@@ -2247,12 +2325,12 @@ std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centerItems4Viewing(
     }
 
     // 1. Compute the centroid of the first cloud to use as the origin
-    Eigen::Vector4f centroid;
-    pcl::compute3DCentroid(*_clouds[0], centroid);
+    // Eigen::Vector4f centroid;
+    // pcl::compute3DCentroid(*_clouds[0], centroid);
 
     // 2. Create the transformation matrix to move the centroid to (0,0,0)
     Eigen::Affine3f transform = Eigen::Affine3f::Identity();
-    transform.translation() << -centroid[0], -centroid[1], -centroid[2];
+    transform.translation() << -_obb.centroid[0], -_obb.centroid[1], -_obb.centroid[2];
 
     // 3. Loop through each cloud, apply the same transform, and store the result
     for (const auto& cloud : _clouds) {
@@ -2263,6 +2341,9 @@ std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centerItems4Viewing(
         centered_clouds.push_back(centered_cloud);
     }
     std::cout << "Centered clouds" << std::endl;
+
+    _obb.centroid = Eigen::Vector3f::Zero();
+    std::cout << "Centered OBbox" << std::endl;
 
     if(_spheres != nullptr) {
         for(auto& sphere : *_spheres) {
@@ -2300,6 +2381,7 @@ void addCloud2View(pcl::visualization::PCLVisualizer::Ptr _viewer, pcl::PointClo
 
 void view(
     const std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr>& _clouds,
+    OrientedBoundingBox _obb,
     const std::vector<pcl::PointXYZRGB>* _spheres,
     const pcl::ModelCoefficients::Ptr _plane)
 {
@@ -2312,12 +2394,12 @@ void view(
         view_spheres = *_spheres;
         view_plane = _plane;
         std::cout << "Calling centerItems4Viewing for all items" << std::endl;
-        centered_clouds = centerItems4Viewing(_clouds, &view_spheres, view_plane);
+        centered_clouds = centerItems4Viewing(_clouds, _obb, &view_spheres, view_plane);
         std::cout << "Called centerItems4Viewing for all items" << std::endl;
     }
     else {
         std::cout << "Calling centerItems4Viewing for clouds" << std::endl;
-        centered_clouds = centerItems4Viewing(_clouds);
+        centered_clouds = centerItems4Viewing(_clouds, _obb);
         std::cout << "Called centerItems4Viewing for clouds" << std::endl;
     }
     
@@ -2337,6 +2419,9 @@ void view(
         viewer->addSphere(view_spheres[0], radius, 0, 255, 0, "centroid_bbox");
         viewer->addSphere(view_spheres[1], radius, 255, 255, 0, "centroid_highest");
     }
+    viewer->addCube(_obb.centroid, _obb.rotation, _obb.width, _obb.height, _obb.depth, "oriented_bbox");
+    viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_REPRESENTATION, pcl::visualization::PCL_VISUALIZER_REPRESENTATION_WIREFRAME, "oriented_bbox");
+    viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 1.0, 0.0, 0.0, "oriented_bbox"); // Red
     viewer->addCoordinateSystem(1.0);
     viewer->initCameraParameters();
     // https://github.com/PointCloudLibrary/pcl/issues/5237#issuecomment-1114255056
