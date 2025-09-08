@@ -1405,15 +1405,10 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloud(
     float half_width = _treeBB.width / 2.0f;
     float half_height = _treeBB.height / 2.0f;
 
-    float min_local_x = -half_width + _radius;
-    float max_local_x = half_width - _radius;
-    float min_local_y = -half_height + _radius;
-    float max_local_y = half_height - _radius;
-
-    float min_x = min_local_x + _radius;
-    float max_x = max_local_x - _radius;
-    float min_y = min_local_y + _radius;
-    float max_y = max_local_y - _radius;
+    float min_x = -half_width + _radius + _treeBB.centroid[0];
+    float max_x = half_width - _radius + _treeBB.centroid[0];
+    float min_y = -half_height + _radius + _treeBB.centroid[1];
+    float max_y = half_height - _radius + _treeBB.centroid[1];
 
     pcl::PointXYZRGB treeCenterPoint(_treeBB.centroid[0], _treeBB.centroid[1], 0.0, 255, 255, 255);
     projectPoint(_treeCloud, treeCenterPoint);
@@ -1428,7 +1423,6 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloud(
     std::vector<std::pair<pcl::PointXYZRGB,double>> candidate_points;
     for (float x = min_x; x <= max_x; x += step) {
         for (float y = min_y; y <= max_y; y += step) {
-            
             pcl::PointXYZRGB point;
             point.x = x;
             point.y = y;
@@ -1454,6 +1448,8 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloud(
     for (const auto& candidate : candidate_points) {
         gridCloud->emplace_back(candidate.first);
     }
+
+    std::cout << "gridCloud has " << gridCloud->points.size() << " points." << std::endl;
 
     return gridCloud;
 }
