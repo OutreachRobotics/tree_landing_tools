@@ -87,6 +87,11 @@ struct DistsOfInterest {
     float distTreeHighestPoint3D;
     float ratioTreeHighestPoint2D;
     float ratioTreeHighestPoint3D;
+
+    float distTreeMidwayPoint2D;
+    float distTreeMidwayPoint3D;
+    float ratioTreeMidwayPoint2D;
+    float ratioTreeMidwayPoint3D;
 };
 
 struct Features {
@@ -444,9 +449,9 @@ bool checkInboundPoints(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _ogCloud, c
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr centerCloud(pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud);
 
 void view(
-    const std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> clouds,
-    const pcl::ModelCoefficients::Ptr _plane = nullptr,
-    const pcl::PointXYZRGB* _sphere = nullptr
+    const std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr>& clouds,
+    const std::vector<pcl::PointXYZRGB>* _spheres = nullptr,
+    const pcl::ModelCoefficients::Ptr _plane = nullptr
 );
 
 } // namespace pcl_tools

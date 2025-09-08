@@ -1965,7 +1965,8 @@ DistsOfInterest computeDistToPointsOfInterest(
     const std::vector<pcl::PointXYZRGB>& _pointsOfInterest,
     const pcl_tools::BoundingBox& _treeBB)
 {
-    if(_pointsOfInterest.size() != 2){
+    if(_pointsOfInterest.size() != 3){
+        std::cout << "_pointsOfInterest != 3 in computeDistToPointsOfInterest()" << std::endl;
         return DistsOfInterest();
     }
 
@@ -2008,6 +2009,11 @@ DistsOfInterest computeDistToPointsOfInterest(
     distsOfInterest.ratioTreeHighestPoint2D = vec_distsOfInterest[1][2];
     distsOfInterest.ratioTreeHighestPoint3D = vec_distsOfInterest[1][3];
 
+    distsOfInterest.distTreeMidwayPoint2D = vec_distsOfInterest[2][0];
+    distsOfInterest.distTreeMidwayPoint3D = vec_distsOfInterest[2][1];
+    distsOfInterest.ratioTreeMidwayPoint2D = vec_distsOfInterest[2][2];
+    distsOfInterest.ratioTreeMidwayPoint3D = vec_distsOfInterest[2][3];
+
     return distsOfInterest;
 }
 
@@ -2031,11 +2037,17 @@ Features computeFeatures(
 
     pcl::PointXYZRGB highestPoint = getHighestPoint(_treeCloud);
 
+    pcl::PointXYZRGB midwayPoint;
+    midwayPoint.x = (treeCenterPoint.x + highestPoint.x) / 2.0f;
+    midwayPoint.y = (treeCenterPoint.y + highestPoint.y) / 2.0f;
+    projectPoint(_treeCloud, midwayPoint);
+
     DistsOfInterest distsOfInterest = computeDistToPointsOfInterest(
         _landingPoint, 
         std::vector<pcl::PointXYZRGB>({
             treeCenterPoint,
-            highestPoint
+            highestPoint,
+            midwayPoint
         }),
         treeBB
     );
@@ -2204,8 +2216,8 @@ bool checkInboundPoints(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _ogCloud, c
 
 std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centerItems4Viewing(
     const std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> _clouds,
-    pcl::ModelCoefficients::Ptr _plane,
-    pcl::PointXYZRGB* _sphere)
+    std::vector<pcl::PointXYZRGB>* _spheres = nullptr,
+    pcl::ModelCoefficients::Ptr _plane = nullptr)
 {
     // Create a vector to store the new, centered clouds
     std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centered_clouds;
@@ -2231,6 +2243,22 @@ std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centerItems4Viewing(
         }
         centered_clouds.push_back(centered_cloud);
     }
+    std::cout << "Centered clouds" << std::endl;
+
+    if(_spheres != nullptr) {
+        for(auto& sphere : *_spheres) {
+            Eigen::Vector3f point_as_eigen = sphere.getVector3fMap();
+
+            // 2. Perform the transformation using Eigen's multiplication
+            Eigen::Vector3f transformed_point = transform * point_as_eigen;
+
+            // 3. Copy the transformed coordinates back to your original PCL point
+            sphere.x = transformed_point.x();
+            sphere.y = transformed_point.y();
+            sphere.z = transformed_point.z();
+        }
+    }
+    std::cout << "Centered spheres" << std::endl;
 
     if(_plane != nullptr && !_plane->values.empty()) {
         // Convert the plane's std::vector coefficients to an Eigen::Vector4f
@@ -2239,19 +2267,7 @@ std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centerItems4Viewing(
         pcl::transformPlane(input_plane_coeffs, transformed_plane_coeffs, transform);
         Eigen::Map<Eigen::Vector4f>(_plane->values.data()) = transformed_plane_coeffs;
     }
-
-    // pcl::PointXYZRGB* _sphere;
-    if(_sphere != nullptr) {
-        Eigen::Vector3f point_as_eigen = _sphere->getVector3fMap();
-
-        // 2. Perform the transformation using Eigen's multiplication
-        Eigen::Vector3f transformed_point = transform * point_as_eigen;
-
-        // 3. Copy the transformed coordinates back to your original PCL point
-        _sphere->x = transformed_point.x();
-        _sphere->y = transformed_point.y();
-        _sphere->z = transformed_point.z();
-    }
+    std::cout << "Centered plane" << std::endl;
 
     return centered_clouds;
 }
@@ -2264,25 +2280,43 @@ void addCloud2View(pcl::visualization::PCLVisualizer::Ptr _viewer, pcl::PointClo
 }
 
 void view(
-    const std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> _clouds,
-    const pcl::ModelCoefficients::Ptr _plane,
-    const pcl::PointXYZRGB* _sphere)
+    const std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr>& _clouds,
+    const std::vector<pcl::PointXYZRGB>* _spheres,
+    const pcl::ModelCoefficients::Ptr _plane)
 {
-    pcl::ModelCoefficients::Ptr view_plane = _plane;
-    pcl::PointXYZRGB view_sphere = *_sphere;
+    std::cout << "Entering view" << std::endl;
+
+    std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centered_clouds;
+    std::vector<pcl::PointXYZRGB> view_spheres;
+    pcl::ModelCoefficients::Ptr view_plane;
+    if (_spheres != nullptr && _plane != nullptr) {
+        view_spheres = *_spheres;
+        view_plane = _plane;
+        std::cout << "Calling centerItems4Viewing for all items" << std::endl;
+        centered_clouds = centerItems4Viewing(_clouds, &view_spheres, view_plane);
+        std::cout << "Called centerItems4Viewing for all items" << std::endl;
+    }
+    else {
+        std::cout << "Calling centerItems4Viewing for clouds" << std::endl;
+        centered_clouds = centerItems4Viewing(_clouds);
+        std::cout << "Called centerItems4Viewing for clouds" << std::endl;
+    }
+    
+    std::cout << "Centered all items" << std::endl;
 
     pcl::visualization::PCLVisualizer::Ptr viewer(new pcl::visualization::PCLVisualizer("3D Viewer"));
     viewer->setBackgroundColor(0, 0, 0);
-    std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centered_clouds = centerItems4Viewing(_clouds, view_plane, &view_sphere);
+
     int i = 0;
     for (pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud : centered_clouds) {
         addCloud2View(viewer, cloud, "cloud" + std::to_string(i));
         ++i;
     }
-    if(view_plane != nullptr){viewer->addPlane(*view_plane, "plane");}
-    if(&view_sphere != nullptr) {
+    if(_plane != nullptr){viewer->addPlane(*view_plane, "plane");}
+    if(_spheres != nullptr) {
         double radius = 0.2;
-        viewer->addSphere(view_sphere, radius, 0, 255, 0, "centroid");
+        viewer->addSphere(view_spheres[0], radius, 0, 255, 0, "centroid_bbox");
+        viewer->addSphere(view_spheres[1], radius, 255, 255, 0, "centroid_highest");
     }
     viewer->addCoordinateSystem(1.0);
     viewer->initCameraParameters();
