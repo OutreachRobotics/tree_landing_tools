@@ -77,6 +77,7 @@ struct DepthMapData {
 
 struct DistsOfInterest {
     float distTop;
+    float distBbox;
 
     float distTreeCenter2D;
     float distTreeCenter3D;
@@ -285,6 +286,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractClosestCluster(
 
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloud(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
+    const BoundingBox& _treeBB,
     const float& _radius,
     const float& _radius_factor = 0.2,
     const float _max_ratio_from_center = 0.5

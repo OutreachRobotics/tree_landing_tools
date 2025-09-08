@@ -1322,25 +1322,32 @@ std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> extractClusters(
 
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloud(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
+    const BoundingBox& _treeBB,
     const float& _radius,
     const float& _radius_factor,
     const float _max_ratio_from_center)
 {
     float step = _radius_factor*_radius;
-    BoundingBox treeBB = getBB(_treeCloud);
 
     // Check for zero spacing to prevent an infinite loop.
     if (step <= 0) {
         return pcl::PointCloud<pcl::PointXYZRGB>::Ptr(); // Return empty cloud if spacing is invalid
     }
 
-    float min_x = treeBB.min_x + _radius;
-    float max_x = treeBB.max_x - _radius;
-    float min_y = treeBB.min_y + _radius;
-    float max_y = treeBB.max_y - _radius;
+    float min_x = _treeBB.min_x + _radius;
+    float max_x = _treeBB.max_x - _radius;
+    float min_y = _treeBB.min_y + _radius;
+    float max_y = _treeBB.max_y - _radius;
 
-    pcl::PointXYZRGB treeCenterPoint(treeBB.centroid[0], treeBB.centroid[1], 0.0, 255, 255, 255);
+    pcl::PointXYZRGB treeCenterPoint(_treeBB.centroid[0], _treeBB.centroid[1], 0.0, 255, 255, 255);
     projectPoint(_treeCloud, treeCenterPoint);
+
+    pcl::PointXYZRGB treeHighestPoint = getHighestPoint(_treeCloud);
+
+    pcl::PointXYZRGB treeMidwayPoint;
+    treeMidwayPoint.x = (treeCenterPoint.x + treeHighestPoint.x) / 2.0f;
+    treeMidwayPoint.y = (treeCenterPoint.y + treeHighestPoint.y) / 2.0f;
+    projectPoint(_treeCloud, treeMidwayPoint);
 
     std::vector<std::pair<pcl::PointXYZRGB,double>> candidate_points;
     for (float x = min_x; x <= max_x; x += step) {
@@ -1351,8 +1358,8 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloud(
             point.y = y;
             point.z = projectPoint(_treeCloud, point);
 
-            float dist3D = computePointsDist3D(point, treeCenterPoint);
-            float min_diameter = std::min(treeBB.width, treeBB.height);
+            float dist3D = computePointsDist3D(point, treeMidwayPoint);
+            float min_diameter = std::min(_treeBB.width, _treeBB.height);
             float ratio3D = dist3D/min_diameter;
 
             if(ratio3D < _max_ratio_from_center) {
@@ -1960,6 +1967,16 @@ float computePointsDist3D(
     return std::sqrt(dx * dx + dy * dy + dz * dz);
 }
 
+float computeDist2BB(
+    const pcl::PointXYZRGB& _landingPoint,
+    const BoundingBox& _treeBB) {
+    float min_x_dist = std::min(std::abs(_treeBB.min_x - _landingPoint.x), std::abs(_treeBB.max_x - _landingPoint.x));
+    float min_y_dist = std::min(std::abs(_treeBB.min_y - _landingPoint.y), std::abs(_treeBB.max_y - _landingPoint.y));
+    float min_dist = std::min(min_x_dist, min_y_dist);
+
+    return min_dist;
+}
+
 DistsOfInterest computeDistToPointsOfInterest(
     const pcl::PointXYZRGB& _landingPoint,
     const std::vector<pcl::PointXYZRGB>& _pointsOfInterest,
@@ -2013,6 +2030,8 @@ DistsOfInterest computeDistToPointsOfInterest(
     distsOfInterest.distTreeMidwayPoint3D = vec_distsOfInterest[2][1];
     distsOfInterest.ratioTreeMidwayPoint2D = vec_distsOfInterest[2][2];
     distsOfInterest.ratioTreeMidwayPoint3D = vec_distsOfInterest[2][3];
+
+    distsOfInterest.distBbox = computeDist2BB(_landingPoint, _treeBB);
 
     return distsOfInterest;
 }
