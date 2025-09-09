@@ -13,6 +13,7 @@
 
 #include <pcl/common/centroid.h>
 #include <pcl/common/common.h>
+#include <pcl/common/distances.h>
 #include <pcl/common/pca.h>
 #include <pcl/common/transforms.h>
 #include <pcl/features/boundary.h>
@@ -28,7 +29,9 @@
 #include <pcl/point_types.h>
 #include <pcl/search/kdtree.h>
 #include <pcl/segmentation/extract_clusters.h>
+#include <pcl/segmentation/extract_polygonal_prism_data.h>
 #include <pcl/segmentation/region_growing.h>
+#include <pcl/surface/concave_hull.h>
 #include <pcl/surface/mls.h>
 #include <pcl/visualization/pcl_visualizer.h>
 
@@ -138,7 +141,7 @@ typename pcl::PointCloud<PointT>::Ptr extractPoints(
 
     // Check for invalid input to prevent errors
     if (!_cloud || _cloud->empty() || _indices.indices.empty()) {
-        return outputCloud;
+        return pcl::make_shared<pcl::PointCloud<PointT>>(*_cloud);
     }
 
     pcl::ExtractIndices<PointT> extract;
@@ -275,7 +278,7 @@ pcl::PointCloud <pcl::PointXYZRGB>::Ptr computeSegmentation(
     const float _threshCurve = 0.03
 );
 
-pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeWatershed(
+std::vector<pcl::PointIndices> computeWatershed(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _cloud,
     const float _leafSize = 0.1,
     const float _radius = 1.0,
@@ -299,12 +302,20 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractClosestCluster(
     const pcl::PointXYZRGB& _point
 );
 
-pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloud(
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloudFromCenter(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
     const OrientedBoundingBox& _treeBB,
     const float& _radius,
     const float& _radius_factor = 0.2,
     const float _max_ratio_from_center = 0.5
+);
+
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloudFromEdge(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeEdge,
+    const float& _radius,
+    const float& _radius_factor = 0.2,
+    const float _min_dist_from_edge = 0.5
 );
 
 void removeNoise(
@@ -410,6 +421,18 @@ float computePointsDist2D(const pcl::PointXYZRGB& point1, const pcl::PointXYZRGB
 
 float computePointsDist3D(const pcl::PointXYZRGB& point1, const pcl::PointXYZRGB& point2);
 
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeConcaveHull2D(
+    const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr& _boundaryCloud,
+    double _alpha
+);
+
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractConcaveHull(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
+    const pcl_tools::OrientedBoundingBox& _treeBB,
+    const int _n_neighbors_search,
+    const double _alpha
+);
+
 DistsOfInterest computeDistToPointsOfInterest(
     const pcl::PointXYZRGB& _landingPoint,
     const std::vector<pcl::PointXYZRGB>& _pointsOfInterest,
@@ -420,7 +443,7 @@ Features computeFeatures(
     const pcl::PointXYZRGB& _landingPoint,
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
     const pcl_tools::OrientedBoundingBox& _treeBB,  
-    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _boundaryCloud,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _hull_polygon,
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _landingSurfaceCloud,
     const float& _lz_factor,
     const float& _radius
@@ -443,7 +466,7 @@ Features computeLandingZoneFeatures(
 std::vector<pcl_tools::Features> computeFeaturesList(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
     const pcl_tools::OrientedBoundingBox& _treeBB,
-    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _boundaryCloud,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _hull_polygon,
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _gridCloud,
     const float& _landing_zone_factor,
     const float& _radius,

@@ -1190,7 +1190,7 @@ int getSegmentLabelForPoint(
     return -1;
 }
 
-pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeWatershed(
+std::vector<pcl::PointIndices> computeWatershed(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _cloud,
     const float _leafSize,
     const float _radius,
@@ -1357,23 +1357,25 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeWatershed(
         }
     }
     
-    if(has_landing_point){
-        return extractClosestCluster(
-            _cloud,
-            clusters_vec,
-            point
-        );
-    }
-    else{
-        auto biggest_cluster_it = std::max_element(
-            clusters_map.begin(),
-            clusters_map.end(),
-            [](const auto& a, const auto& b) {
-                return a.second.indices.size() < b.second.indices.size();
-            }
-        );
-        return extractPoints<pcl::PointXYZRGB>(_cloud, biggest_cluster_it->second);
-    }
+    // if(has_landing_point){
+    //     return extractClosestCluster(
+    //         _cloud,
+    //         clusters_vec,
+    //         point
+    //     );
+    // }
+    // else{
+    //     auto biggest_cluster_it = std::max_element(
+    //         clusters_vec.begin(),
+    //         clusters_vec.end(),
+    //         [](const auto& a, const auto& b) {
+    //             return a.indices.size() < b.indices.size();
+    //         }
+    //     );
+    //     return extractPoints<pcl::PointXYZRGB>(_cloud, biggest_cluster_it->second);
+    // }
+
+    return clusters_vec;
 }
 
 std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> extractClusters(
@@ -1391,7 +1393,7 @@ std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> extractClusters(
     return extracted_clusters;
 }
 
-pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloud(
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloudFromCenter(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
     const OrientedBoundingBox& _treeBB,
     const float& _radius,
@@ -1405,13 +1407,12 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloud(
         return pcl::PointCloud<pcl::PointXYZRGB>::Ptr(); // Return empty cloud if spacing is invalid
     }
 
-    float half_width = _treeBB.width / 2.0f;
-    float half_height = _treeBB.height / 2.0f;
-
-    float min_x = -half_width + _radius + _treeBB.centroid[0];
-    float max_x = half_width - _radius + _treeBB.centroid[0];
-    float min_y = -half_height + _radius + _treeBB.centroid[1];
-    float max_y = half_height - _radius + _treeBB.centroid[1];
+    pcl::PointXYZRGB min_pt, max_pt;
+    pcl::getMinMax3D(*_treeCloud, min_pt, max_pt);
+    float min_x = min_pt.x + _radius/2.0;
+    float max_x = max_pt.x - _radius/2.0;
+    float min_y = min_pt.y + _radius/2.0;
+    float max_y = max_pt.y - _radius/2.0;
 
     pcl::PointXYZRGB treeCenterPoint(_treeBB.centroid[0], _treeBB.centroid[1], 0.0, 255, 255, 255);
     projectPoint(_treeCloud, treeCenterPoint);
@@ -1444,6 +1445,138 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloud(
     std::sort(candidate_points.begin(), candidate_points.end(), 
         [](const std::pair<pcl::PointXYZRGB,double>& a, const std::pair<pcl::PointXYZRGB,double>& b) {
             return a.second < b.second;
+    });
+
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr gridCloud(new pcl::PointCloud<pcl::PointXYZRGB>());
+    gridCloud->reserve(candidate_points.size()); // Optimize memory allocation
+    for (const auto& candidate : candidate_points) {
+        gridCloud->emplace_back(candidate.first);
+    }
+
+    std::cout << "gridCloud has " << gridCloud->points.size() << " points." << std::endl;
+
+    return gridCloud;
+}
+
+/**
+ * @brief Calculates the shortest distance from a point to a polygon's perimeter.
+ * @param point The PointXYZRGB to test.
+ * @param polygon The polygon, represented by a cloud of ordered PointXYZRGB vertices.
+ * @return The minimum Euclidean distance to the polygon's edge.
+ */
+double pointToPolygonDistance(const pcl::PointXYZRGB& _point, const pcl::PointCloud<pcl::PointXYZRGB>& _polygon)
+{
+    double min_dist_sq = std::numeric_limits<double>::max();
+    int n_points = _polygon.points.size();
+
+    // Iterate over each edge of the polygon (from point i to point j)
+    for (int i = 0, j = n_points - 1; i < n_points; j = i++)
+    {
+        const auto& p_i = _polygon.points[i];
+        const auto& p_j = _polygon.points[j];
+
+        double edge_dx = p_j.x - p_i.x;
+        double edge_dy = p_j.y - p_i.y;
+
+        double dist_sq;
+
+        if (edge_dx == 0.0 && edge_dy == 0.0) // Edge has zero length
+        {
+            dist_sq = (_point.x - p_i.x) * (_point.x - p_i.x) + (_point.y - p_i.y) * (_point.y - p_i.y);
+        }
+        else
+        {
+            // Project point onto the line defined by the edge
+            double t = ((_point.x - p_i.x) * edge_dx + (_point.y - p_i.y) * edge_dy) / (edge_dx * edge_dx + edge_dy * edge_dy);
+
+            if (t < 0.0) // Projection is before the start of the segment
+            {
+                dist_sq = (_point.x - p_i.x) * (_point.x - p_i.x) + (_point.y - p_i.y) * (_point.y - p_i.y);
+            }
+            else if (t > 1.0) // Projection is after the end of the segment
+            {
+                dist_sq = (_point.x - p_j.x) * (_point.x - p_j.x) + (_point.y - p_j.y) * (_point.y - p_j.y);
+            }
+            else // Projection is on the segment
+            {
+                double closest_x = p_i.x + t * edge_dx;
+                double closest_y = p_i.y + t * edge_dy;
+                dist_sq = (_point.x - closest_x) * (_point.x - closest_x) + (_point.y - closest_y) * (_point.y - closest_y);
+            }
+        }
+        
+        if (dist_sq < min_dist_sq) {
+            min_dist_sq = dist_sq;
+        }
+    }
+    return std::sqrt(min_dist_sq);
+}
+
+
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloudFromEdge(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeEdge,
+    const float& _radius,
+    const float& _radius_factor,
+    const float _min_dist_from_edge)
+{
+    float step = _radius_factor*_radius;
+
+    // Check for zero spacing to prevent an infinite loop.
+    if (step <= 0) {
+        return pcl::PointCloud<pcl::PointXYZRGB>::Ptr(); // Return empty cloud if spacing is invalid
+    }
+
+    pcl::PointXYZRGB min_pt, max_pt;
+    pcl::getMinMax3D(*_treeCloud, min_pt, max_pt);
+    float min_x = min_pt.x + _radius/2.0;
+    float max_x = max_pt.x - _radius/2.0;
+    float min_y = min_pt.y + _radius/2.0;
+    float max_y = max_pt.y - _radius/2.0;
+
+    std::cout << "min_x: " << min_x << std::endl;
+    std::cout << "max_x: " << max_x << std::endl;
+    std::cout << "min_y: " << min_y << std::endl;
+    std::cout << "max_y: " << max_y << std::endl;
+
+    std::vector<std::pair<pcl::PointXYZRGB,double>> candidate_points;
+    for (float x = min_x; x <= max_x; x += step) {
+        for (float y = min_y; y <= max_y; y += step) {
+            pcl::PointXYZRGB point;
+            point.x = x;
+            point.y = y;
+            point.z = projectPoint(_treeCloud, point);
+
+            bool is_inside = pcl::isPointIn2DPolygon(point, *_treeEdge);
+            // double dist = pointToPolygonDistance(point, *_treeEdge);
+            double dist;
+
+            std::vector<float> distances2D;
+            distances2D.reserve(_treeEdge->points.size());
+            for(const auto& edgePoint : _treeEdge->points) {
+                float dx = point.x - edgePoint.x;
+                float dy = point.y - edgePoint.y;
+
+                distances2D.push_back(std::sqrt(dx*dx + dy*dy));
+            }
+
+            auto min_dist2D_it = std::min_element(distances2D.begin(), distances2D.end());
+            if (min_dist2D_it != distances2D.end()) {
+                dist = *min_dist2D_it;
+            }
+
+            std::cout << "is_inside: " << is_inside << std::endl;
+            std::cout << "dist: " << dist << std::endl;
+
+            if(is_inside && dist > _min_dist_from_edge) {
+                candidate_points.push_back({point, dist});
+            }
+        }
+    }
+
+    std::sort(candidate_points.begin(), candidate_points.end(), 
+        [](const std::pair<pcl::PointXYZRGB,double>& a, const std::pair<pcl::PointXYZRGB,double>& b) {
+            return a.second > b.second;
     });
 
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr gridCloud(new pcl::PointCloud<pcl::PointXYZRGB>());
@@ -1621,8 +1754,8 @@ void extractBoundary(
         _searchNeighbors
     );
 
-    // std::cout << "extractBoundary" << std::endl;
-    // std::cout << "idx length: " << idx.indices.size() << std::endl;
+    std::cout << "extractBoundary" << std::endl;
+    std::cout << "idx length: " << idx.indices.size() << std::endl;
 
     _cloud = extractPoints<pcl::PointXYZRGB>(_cloud, idx, false);
 }
@@ -2136,35 +2269,56 @@ DistsOfInterest computeDistToPointsOfInterest(
 //     return is_inside;
 // }
 
-DistsOfInterest computeDistancesToBoundary(
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeConcaveHull2D(
+    const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr& _boundaryCloud,
+    double _alpha)
+{
+    // --- Input Validation ---
+    if (_boundaryCloud->points.size() < 3) {
+        std::cerr << "Error: Input cloud needs at least 3 points to form a polygon." << std::endl;
+        return pcl::PointCloud<pcl::PointXYZRGB>::Ptr();
+    }
+
+    // --- 1. Create Hull ---
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr hull_polygon(new pcl::PointCloud<pcl::PointXYZRGB>(*_boundaryCloud));
+    pcl::ConcaveHull<pcl::PointXYZRGB> chull;
+    chull.setInputCloud(_boundaryCloud);
+    chull.setAlpha(_alpha);
+    chull.setDimension(2);
+    chull.reconstruct(*hull_polygon);
+
+    if (hull_polygon->points.size() < 3) {
+        std::cerr << "Error: Concave hull resulted in fewer than 3 points. Try a larger alpha value." << std::endl;
+        return pcl::PointCloud<pcl::PointXYZRGB>::Ptr();
+    }
+
+    std::cout << "_boundaryCloud size: " << _boundaryCloud->points.size() << std::endl;
+    std::cout << "hull_polygon size: " << hull_polygon->points.size() << std::endl;
+
+    return hull_polygon;
+}
+
+DistsOfInterest computeDistancesToPolygon(
     const pcl::PointXYZRGB& _landingPoint,
-    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _boundaryCloud,
-    const DistsOfInterest& _distsOfInterest,
-    const int _sign)
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _hull_polygon,
+    const DistsOfInterest& _distsOfInterest)
 {
     DistsOfInterest output = _distsOfInterest;
 
-    if (_boundaryCloud->points.size() < 3) {
+    if (_hull_polygon->points.size() < 3) {
         return output;
     }
 
-    // pcl::PointCloud<pcl::PointXYZRGB>::Ptr ordered_hull_cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
-    // pcl::ConvexHull<pcl::PointXYZRGB> chull;
-    // chull.setInputCloud(_boundaryCloud);
-    // chull.reconstruct(*ordered_hull_cloud);
-
-    // if (ordered_hull_cloud->points.size() < 3) {
-    //     return output;
-    // }
-
-    // bool is_inside = isPointIn2DPolygon(_landingPoint, *ordered_hull_cloud);
-    // float sign = is_inside ? -1.0f : 1.0f;
+    bool is_inside = pcl::isPointIn2DPolygon(_landingPoint, *_hull_polygon);
+    double sign = is_inside ? -1.0 : 1.0;
+    // double magnitude = sign * pointToPolygonDistance(_landingPoint, *_hull_polygon);
+    // output.distMinBoundary2D = magnitude;
 
     std::vector<float> distances2D;
     std::vector<float> distances3D;
-    distances2D.reserve(_boundaryCloud->points.size());
-    distances3D.reserve(_boundaryCloud->points.size());
-    for(const auto& point : _boundaryCloud->points) {
+    distances2D.reserve(_hull_polygon->points.size());
+    distances3D.reserve(_hull_polygon->points.size());
+    for(const auto& point : _hull_polygon->points) {
         float dx = _landingPoint.x - point.x;
         float dy = _landingPoint.y - point.y;
         float dz = _landingPoint.z - point.z;
@@ -2175,29 +2329,47 @@ DistsOfInterest computeDistancesToBoundary(
 
     auto min_dist2D_it = std::min_element(distances2D.begin(), distances2D.end());
     if (min_dist2D_it != distances2D.end()) {
-        output.distMinBoundary2D = _sign * (*min_dist2D_it);
-        // output.distMinBoundary2D = *min_dist2D_it;
+        output.distMinBoundary2D = sign * (*min_dist2D_it);
     }
 
     auto min_dist3D_it = std::min_element(distances3D.begin(), distances3D.end());
     if (min_dist3D_it != distances2D.end()) {
-        output.distMinBoundary3D = _sign * (*min_dist3D_it);
-        // output.distMinBoundary3D = *min_dist3D_it;
+        output.distMinBoundary3D = sign * (*min_dist3D_it);
     }
 
-    output.distAvgBoundary2D = _sign * std::accumulate(distances2D.begin(), distances2D.end(), 0.0) / distances2D.size();
-    output.distAvgBoundary3D = _sign * std::accumulate(distances3D.begin(), distances3D.end(), 0.0) / distances3D.size();
-    // output.distAvgBoundary2D = std::accumulate(distances2D.begin(), distances2D.end(), 0.0) / distances2D.size();
-    // output.distAvgBoundary3D = std::accumulate(distances3D.begin(), distances3D.end(), 0.0) / distances3D.size();
+    output.distAvgBoundary2D = sign * std::accumulate(distances2D.begin(), distances2D.end(), 0.0) / distances2D.size();
+    output.distAvgBoundary3D = sign * std::accumulate(distances3D.begin(), distances3D.end(), 0.0) / distances3D.size();
 
     return output;
+}
+
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr  extractConcaveHull(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
+    const pcl_tools::OrientedBoundingBox& _treeBB,
+    const int _n_neighbors_search,
+    const double _alpha)
+{
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr treeNormMatchedCloud(new pcl::PointCloud<pcl::PointXYZRGB>(*_treeCloud));
+    pcl::PointCloud<pcl::PointNormal>::Ptr normalsCloud = pcl_tools::extractNormalsPC(
+        treeNormMatchedCloud,
+        _n_neighbors_search,
+        pcl::PointXYZRGB(_treeBB.centroid[0], _treeBB.centroid[1], _treeBB.centroid[2], 255, 255, 255)
+    );
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr boundaryCloud(new pcl::PointCloud<pcl::PointXYZRGB>(*treeNormMatchedCloud));
+    pcl_tools::extractBoundary(boundaryCloud, normalsCloud, _n_neighbors_search);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr hull_polygon = pcl_tools::computeConcaveHull2D(
+        boundaryCloud,
+        _alpha
+    );
+
+    return hull_polygon;
 }
 
 Features computeFeatures(
     const pcl::PointXYZRGB& _landingPoint,
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
     const pcl_tools::OrientedBoundingBox& _treeBB,
-    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _boundaryCloud,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _hull_polygon,
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _landingSurfaceCloud,
     const float& _lz_factor,
     const float& _radius)
@@ -2231,8 +2403,7 @@ Features computeFeatures(
 
     distsOfInterest.distTop = highestPoint.z - _landingPoint.z;
     distsOfInterest.distBbox2D = distanceToOBB2D(_landingPoint, _treeBB);
-    const int sign = distsOfInterest.distBbox2D > 0 ? 1 : -1;
-    distsOfInterest = computeDistancesToBoundary(_landingPoint, _boundaryCloud, distsOfInterest, sign);
+    distsOfInterest = computeDistancesToPolygon(_landingPoint, _hull_polygon, distsOfInterest);
 
     return Features{curvatures, treeBB, density, slope, stdDev, distsOfInterest, coef};
 }
@@ -2293,7 +2464,7 @@ Features computeFeatures(
 std::vector<pcl_tools::Features> computeFeaturesList(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
     const pcl_tools::OrientedBoundingBox& _treeBB,
-    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _boundaryCloud,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _hull_polygon,
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _gridCloud,
     const float& _landing_zone_factor,
     const float& _radius,
@@ -2309,7 +2480,7 @@ std::vector<pcl_tools::Features> computeFeaturesList(
             continue;
         }
 
-        Features features = computeFeatures(point, _treeCloud, _treeBB, _boundaryCloud, landingSurfaceCloud, _landing_zone_factor, _radius);
+        Features features = computeFeatures(point, _treeCloud, _treeBB, _hull_polygon, landingSurfaceCloud, _landing_zone_factor, _radius);
         features_list.push_back(features);
     }
 
