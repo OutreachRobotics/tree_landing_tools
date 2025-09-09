@@ -334,7 +334,7 @@ pcl_tools::BoundingBox getBB(
     return boundingBox;
 }
 
-double distanceToOBBCenter(
+double distanceToOBBCenter2D(
     const pcl::PointXYZRGB& _point,
     const OrientedBoundingBox& _obb)
 {
@@ -342,7 +342,7 @@ double distanceToOBBCenter(
     return difference.norm();
 }
 
-double distanceToOBB(
+double distanceToOBB2D(
     const pcl::PointXYZRGB& _point,
     const OrientedBoundingBox& _obb)
 {
@@ -1302,6 +1302,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeWatershed(
     removeOutgrowths(markers);
 
     std::map<int, pcl::PointIndices> clusters_map = segmentsToClusters(_cloud, markers, smoothDepthMapData);
+    std::vector<pcl::PointIndices> clusters_vec = clustersMapToVector(clusters_map);
 
     if(_shouldView){
         // 5. VISUALIZE THE RESULT
@@ -1349,7 +1350,6 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeWatershed(
 
         cv::waitKey(0);
 
-        std::vector<pcl::PointIndices> clusters_vec = clustersMapToVector(clusters_map);
         std::vector<pcl::RGB> colorTable = generatePclColors(clusters_vec.size());
         colorSegmentedPoints(_cloud, pcl::RGB(255,255,255));
         for(size_t i=0; i < clusters_vec.size(); ++i) {
@@ -1358,8 +1358,11 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeWatershed(
     }
     
     if(has_landing_point){
-        int point_label = getSegmentLabelForPoint(point, markers, smoothDepthMapData);
-        return extractPoints<pcl::PointXYZRGB>(_cloud, clusters_map.at(point_label));
+        return extractClosestCluster(
+            _cloud,
+            clusters_vec,
+            point
+        );
     }
     else{
         auto biggest_cluster_it = std::max_element(
@@ -1503,9 +1506,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractClosestCluster(
     for (const auto& cluster : extracted_clusters)
     {
         OrientedBoundingBox oBbox = getOBB(cluster);
-        // double dist = distanceToOBB(_point, oBbox);
-        double dist = distanceToOBBCenter(_point, oBbox);
-        // double dist_sq = distanceToBBSq(_point, bbox);
+        double dist = distanceToOBBCenter2D(_point, oBbox);
 
         if (dist < min_distance) {
             min_distance = dist;
@@ -1619,6 +1620,9 @@ void extractBoundary(
         _normalsCloud,
         _searchNeighbors
     );
+
+    // std::cout << "extractBoundary" << std::endl;
+    // std::cout << "idx length: " << idx.indices.size() << std::endl;
 
     _cloud = extractPoints<pcl::PointXYZRGB>(_cloud, idx, false);
 }
@@ -2104,20 +2108,101 @@ DistsOfInterest computeDistToPointsOfInterest(
     distsOfInterest.ratioTreeMidwayPoint2D = vec_distsOfInterest[2][2];
     distsOfInterest.ratioTreeMidwayPoint3D = vec_distsOfInterest[2][3];
 
-    distsOfInterest.distBbox = distanceToOBB(_landingPoint, _treeBB);
-
     return distsOfInterest;
+}
+
+// bool isPointIn2DPolygon(const pcl::PointXYZRGB& point, const pcl::PointCloud<pcl::PointXYZRGB>& polygon)
+// {
+//     bool is_inside = false;
+//     int n_points = polygon.points.size();
+
+//     // Iterate over each edge of the polygon (from point i to point j)
+//     for (int i = 0, j = n_points - 1; i < n_points; j = i++)
+//     {
+//         const auto& p_i = polygon.points[i];
+//         const auto& p_j = polygon.points[j];
+
+//         // Check if the point's y-coordinate is between the edge's y-coordinates.
+//         // Also checks if the point's x-coordinate is to the left of the edge's x-coordinates.
+//         if (((p_i.y > point.y) != (p_j.y > point.y)) &&
+//             (point.x < (p_j.x - p_i.x) * (point.y - p_i.y) / (p_j.y - p_i.y) + p_i.x))
+//         {
+//             // If the conditions are met, the ray from the point intersects this edge.
+//             // We flip the 'is_inside' boolean. An odd number of intersections means
+//             // the point is inside; an even number means it's outside.
+//             is_inside = !is_inside;
+//         }
+//     }
+//     return is_inside;
+// }
+
+DistsOfInterest computeDistancesToBoundary(
+    const pcl::PointXYZRGB& _landingPoint,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _boundaryCloud,
+    const DistsOfInterest& _distsOfInterest,
+    const int _sign)
+{
+    DistsOfInterest output = _distsOfInterest;
+
+    if (_boundaryCloud->points.size() < 3) {
+        return output;
+    }
+
+    // pcl::PointCloud<pcl::PointXYZRGB>::Ptr ordered_hull_cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
+    // pcl::ConvexHull<pcl::PointXYZRGB> chull;
+    // chull.setInputCloud(_boundaryCloud);
+    // chull.reconstruct(*ordered_hull_cloud);
+
+    // if (ordered_hull_cloud->points.size() < 3) {
+    //     return output;
+    // }
+
+    // bool is_inside = isPointIn2DPolygon(_landingPoint, *ordered_hull_cloud);
+    // float sign = is_inside ? -1.0f : 1.0f;
+
+    std::vector<float> distances2D;
+    std::vector<float> distances3D;
+    distances2D.reserve(_boundaryCloud->points.size());
+    distances3D.reserve(_boundaryCloud->points.size());
+    for(const auto& point : _boundaryCloud->points) {
+        float dx = _landingPoint.x - point.x;
+        float dy = _landingPoint.y - point.y;
+        float dz = _landingPoint.z - point.z;
+
+        distances2D.push_back(std::sqrt(dx*dx + dy*dy));
+        distances3D.push_back(std::sqrt(dx*dx + dy*dy + dz*dz));
+    }
+
+    auto min_dist2D_it = std::min_element(distances2D.begin(), distances2D.end());
+    if (min_dist2D_it != distances2D.end()) {
+        output.distMinBoundary2D = _sign * (*min_dist2D_it);
+        // output.distMinBoundary2D = *min_dist2D_it;
+    }
+
+    auto min_dist3D_it = std::min_element(distances3D.begin(), distances3D.end());
+    if (min_dist3D_it != distances2D.end()) {
+        output.distMinBoundary3D = _sign * (*min_dist3D_it);
+        // output.distMinBoundary3D = *min_dist3D_it;
+    }
+
+    output.distAvgBoundary2D = _sign * std::accumulate(distances2D.begin(), distances2D.end(), 0.0) / distances2D.size();
+    output.distAvgBoundary3D = _sign * std::accumulate(distances3D.begin(), distances3D.end(), 0.0) / distances3D.size();
+    // output.distAvgBoundary2D = std::accumulate(distances2D.begin(), distances2D.end(), 0.0) / distances2D.size();
+    // output.distAvgBoundary3D = std::accumulate(distances3D.begin(), distances3D.end(), 0.0) / distances3D.size();
+
+    return output;
 }
 
 Features computeFeatures(
     const pcl::PointXYZRGB& _landingPoint,
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
+    const pcl_tools::OrientedBoundingBox& _treeBB,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _boundaryCloud,
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _landingSurfaceCloud,
     const float& _lz_factor,
     const float& _radius)
 {
     OrientedBoundingBox treeBB = getOBB(_treeCloud);
-
     pcl::PointXYZRGB treeCenterPoint(treeBB.centroid[0], treeBB.centroid[1], 0.0, 255, 255, 255);
     projectPoint(_treeCloud, treeCenterPoint);
 
@@ -2145,65 +2230,70 @@ Features computeFeatures(
     );
 
     distsOfInterest.distTop = highestPoint.z - _landingPoint.z;
+    distsOfInterest.distBbox2D = distanceToOBB2D(_landingPoint, _treeBB);
+    const int sign = distsOfInterest.distBbox2D > 0 ? 1 : -1;
+    distsOfInterest = computeDistancesToBoundary(_landingPoint, _boundaryCloud, distsOfInterest, sign);
 
     return Features{curvatures, treeBB, density, slope, stdDev, distsOfInterest, coef};
 }
 
-Features computeLandingPointFeatures(
-    const pcl::PointXYZRGB& _landingPoint,
-    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud)
-{
-    OrientedBoundingBox treeBB = getOBB(_treeCloud);
+// Features computeLandingPointFeatures(
+//     const pcl::PointXYZRGB& _landingPoint,
+//     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud)
+// {
+//     OrientedBoundingBox treeBB = getOBB(_treeCloud);
 
-    pcl::PointXYZRGB treeCenterPoint(treeBB.centroid[0], treeBB.centroid[1], 0.0, 255, 255, 255);
-    projectPoint(_treeCloud, treeCenterPoint);
+//     pcl::PointXYZRGB treeCenterPoint(treeBB.centroid[0], treeBB.centroid[1], 0.0, 255, 255, 255);
+//     projectPoint(_treeCloud, treeCenterPoint);
 
-    pcl::PointXYZRGB highestPoint = getHighestPoint(_treeCloud);
+//     pcl::PointXYZRGB highestPoint = getHighestPoint(_treeCloud);
 
-    DistsOfInterest distsOfInterest = computeDistToPointsOfInterest(
-        _landingPoint, 
-        std::vector<pcl::PointXYZRGB>({
-            treeCenterPoint,
-            highestPoint
-        }),
-        treeBB
-    );
+//     DistsOfInterest distsOfInterest = computeDistToPointsOfInterest(
+//         _landingPoint, 
+//         std::vector<pcl::PointXYZRGB>({
+//             treeCenterPoint,
+//             highestPoint
+//         }),
+//         treeBB
+//     );
 
-    distsOfInterest.distTop = highestPoint.z - _landingPoint.z;
+//     distsOfInterest.distTop = highestPoint.z - _landingPoint.z;
 
-    return Features{
-        pcl::PrincipalCurvatures(),
-        treeBB,
-        std::numeric_limits<float>::quiet_NaN(),
-        std::numeric_limits<float>::quiet_NaN(),
-        std::numeric_limits<float>::quiet_NaN(),
-        distsOfInterest,
-        pcl::ModelCoefficients::Ptr()
-    };
-}
+//     return Features{
+//         pcl::PrincipalCurvatures(),
+//         treeBB,
+//         std::numeric_limits<float>::quiet_NaN(),
+//         std::numeric_limits<float>::quiet_NaN(),
+//         std::numeric_limits<float>::quiet_NaN(),
+//         distsOfInterest,
+//         pcl::ModelCoefficients::Ptr()
+//     };
+// }
 
-Features computeLandingZoneFeatures(
-    const pcl::PointXYZRGB& _landingPoint,
-    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
-    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _landingSurfaceCloud,
-    const float& _lz_factor,
-    const float& _radius,
-    const Features& _landing_point_features)
-{
-    pcl::PointXYZRGB treeCenterPoint(_landing_point_features.treeBB.centroid[0], _landing_point_features.treeBB.centroid[1], 0.0, 255, 255, 255);
-    projectPoint(_treeCloud, treeCenterPoint);
+// Features computeLandingZoneFeatures(
+//     const pcl::PointXYZRGB& _landingPoint,
+//     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
+//     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _landingSurfaceCloud,
+//     const float& _lz_factor,
+//     const float& _radius,
+//     const Features& _landing_point_features)
+// {
+//     pcl::PointXYZRGB treeCenterPoint(_landing_point_features.treeBB.centroid[0], _landing_point_features.treeBB.centroid[1], 0.0, 255, 255, 255);
+//     projectPoint(_treeCloud, treeCenterPoint);
 
-    pcl::PrincipalCurvatures curvatures = computeCurvature(_landingSurfaceCloud, _landingPoint, _lz_factor*_radius);
-    float density = computeSurfaceDensity(_landingSurfaceCloud, _lz_factor*_radius);
-    pcl::ModelCoefficients::Ptr coef = computePlane(_landingSurfaceCloud);
-    float slope = computePlaneAngle(coef);
-    float stdDev = computeStandardDeviation(_landingSurfaceCloud, coef);
+//     pcl::PrincipalCurvatures curvatures = computeCurvature(_landingSurfaceCloud, _landingPoint, _lz_factor*_radius);
+//     float density = computeSurfaceDensity(_landingSurfaceCloud, _lz_factor*_radius);
+//     pcl::ModelCoefficients::Ptr coef = computePlane(_landingSurfaceCloud);
+//     float slope = computePlaneAngle(coef);
+//     float stdDev = computeStandardDeviation(_landingSurfaceCloud, coef);
 
-    return Features{curvatures, _landing_point_features.treeBB, density, slope, stdDev, _landing_point_features.distsOfInterest, coef};
-}
+//     return Features{curvatures, _landing_point_features.treeBB, density, slope, stdDev, _landing_point_features.distsOfInterest, coef};
+// }
 
 std::vector<pcl_tools::Features> computeFeaturesList(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
+    const pcl_tools::OrientedBoundingBox& _treeBB,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _boundaryCloud,
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _gridCloud,
     const float& _landing_zone_factor,
     const float& _radius,
@@ -2219,7 +2309,7 @@ std::vector<pcl_tools::Features> computeFeaturesList(
             continue;
         }
 
-        Features features = computeFeatures(point, _treeCloud, landingSurfaceCloud, _landing_zone_factor, _radius);
+        Features features = computeFeatures(point, _treeCloud, _treeBB, _boundaryCloud, landingSurfaceCloud, _landing_zone_factor, _radius);
         features_list.push_back(features);
     }
 

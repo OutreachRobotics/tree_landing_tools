@@ -86,7 +86,11 @@ struct DepthMapData {
 
 struct DistsOfInterest {
     float distTop;
-    float distBbox;
+    float distBbox2D;
+    float distMinBoundary2D;
+    float distMinBoundary3D;
+    float distAvgBoundary2D;
+    float distAvgBoundary3D;
 
     float distTreeCenter2D;
     float distTreeCenter3D;
@@ -329,9 +333,9 @@ pcl::PointIndices findBoundary(
 );
 
 void extractBoundary(
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
-    const pcl::PointCloud<pcl::PointNormal>::Ptr& normalsCloud,
-    const int searchNeighbors
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr& cloud,
+    const pcl::PointCloud<pcl::PointNormal>::Ptr normalsCloud,
+    const int searchNeighbors = 30
 );
 
 pcl::PointIndices findRadiusBoundary(
@@ -415,6 +419,8 @@ DistsOfInterest computeDistToPointsOfInterest(
 Features computeFeatures(
     const pcl::PointXYZRGB& _landingPoint,
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
+    const pcl_tools::OrientedBoundingBox& _treeBB,  
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _boundaryCloud,
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _landingSurfaceCloud,
     const float& _lz_factor,
     const float& _radius
@@ -436,6 +442,8 @@ Features computeLandingZoneFeatures(
 
 std::vector<pcl_tools::Features> computeFeaturesList(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
+    const pcl_tools::OrientedBoundingBox& _treeBB,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _boundaryCloud,
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _gridCloud,
     const float& _landing_zone_factor,
     const float& _radius,
