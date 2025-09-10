@@ -92,8 +92,8 @@ struct DistsOfInterest {
     float distBbox2D;
     float distMinBoundary2D;
     float distMinBoundary3D;
-    float distAvgBoundary2D;
-    float distAvgBoundary3D;
+    float ratioMinBoundary2D;
+    float ratioMinBoundary3D;
 
     float distTreeCenter2D;
     float distTreeCenter3D;
@@ -315,7 +315,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloudFromEdge(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeEdge,
     const float& _radius,
     const float& _radius_factor = 0.2,
-    const float _min_dist_from_edge = 0.5
+    const float _max_dist_from_edge = -0.5
 );
 
 void removeNoise(

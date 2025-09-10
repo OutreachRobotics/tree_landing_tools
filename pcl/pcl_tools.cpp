@@ -1518,7 +1518,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloudFromEdge(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeEdge,
     const float& _radius,
     const float& _radius_factor,
-    const float _min_dist_from_edge)
+    const float _max_dist_from_edge)
 {
     float step = _radius_factor*_radius;
 
@@ -1548,6 +1548,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloudFromEdge(
             point.z = projectPoint(_treeCloud, point);
 
             bool is_inside = pcl::isPointIn2DPolygon(point, *_treeEdge);
+            float sign = is_inside ? -1.0 : 1.0;
             // double dist = pointToPolygonDistance(point, *_treeEdge);
             double dist;
 
@@ -1562,13 +1563,13 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloudFromEdge(
 
             auto min_dist2D_it = std::min_element(distances2D.begin(), distances2D.end());
             if (min_dist2D_it != distances2D.end()) {
-                dist = *min_dist2D_it;
+                dist = sign * (*min_dist2D_it);
             }
 
             std::cout << "is_inside: " << is_inside << std::endl;
             std::cout << "dist: " << dist << std::endl;
 
-            if(is_inside && dist > _min_dist_from_edge) {
+            if(dist < _max_dist_from_edge) {
                 candidate_points.push_back({point, dist});
             }
         }
@@ -1576,7 +1577,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloudFromEdge(
 
     std::sort(candidate_points.begin(), candidate_points.end(), 
         [](const std::pair<pcl::PointXYZRGB,double>& a, const std::pair<pcl::PointXYZRGB,double>& b) {
-            return a.second > b.second;
+            return a.second < b.second;
     });
 
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr gridCloud(new pcl::PointCloud<pcl::PointXYZRGB>());
@@ -2301,9 +2302,11 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeConcaveHull2D(
 DistsOfInterest computeDistancesToPolygon(
     const pcl::PointXYZRGB& _landingPoint,
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _hull_polygon,
+    const pcl_tools::OrientedBoundingBox& _treeBB,
     const DistsOfInterest& _distsOfInterest)
 {
     DistsOfInterest output = _distsOfInterest;
+    double min_tree_dia = std::min(_treeBB.width, _treeBB.height);
 
     if (_hull_polygon->points.size() < 3) {
         return output;
@@ -2337,8 +2340,11 @@ DistsOfInterest computeDistancesToPolygon(
         output.distMinBoundary3D = sign * (*min_dist3D_it);
     }
 
-    output.distAvgBoundary2D = sign * std::accumulate(distances2D.begin(), distances2D.end(), 0.0) / distances2D.size();
-    output.distAvgBoundary3D = sign * std::accumulate(distances3D.begin(), distances3D.end(), 0.0) / distances3D.size();
+    output.ratioMinBoundary2D = output.distMinBoundary2D / min_tree_dia;
+    output.ratioMinBoundary3D = output.distMinBoundary3D / min_tree_dia;
+
+    // output.distAvgBoundary2D = sign * std::accumulate(distances2D.begin(), distances2D.end(), 0.0) / distances2D.size();
+    // output.distAvgBoundary3D = sign * std::accumulate(distances3D.begin(), distances3D.end(), 0.0) / distances3D.size();
 
     return output;
 }
@@ -2374,8 +2380,7 @@ Features computeFeatures(
     const float& _lz_factor,
     const float& _radius)
 {
-    OrientedBoundingBox treeBB = getOBB(_treeCloud);
-    pcl::PointXYZRGB treeCenterPoint(treeBB.centroid[0], treeBB.centroid[1], 0.0, 255, 255, 255);
+    pcl::PointXYZRGB treeCenterPoint(_treeBB.centroid[0], _treeBB.centroid[1], 0.0, 255, 255, 255);
     projectPoint(_treeCloud, treeCenterPoint);
 
     pcl::PrincipalCurvatures curvatures = computeCurvature(_landingSurfaceCloud, _landingPoint, _lz_factor*_radius);
@@ -2398,14 +2403,14 @@ Features computeFeatures(
             highestPoint,
             midwayPoint
         }),
-        treeBB
+        _treeBB
     );
 
     distsOfInterest.distTop = highestPoint.z - _landingPoint.z;
     distsOfInterest.distBbox2D = distanceToOBB2D(_landingPoint, _treeBB);
-    distsOfInterest = computeDistancesToPolygon(_landingPoint, _hull_polygon, distsOfInterest);
+    distsOfInterest = computeDistancesToPolygon(_landingPoint, _hull_polygon, _treeBB, distsOfInterest);
 
-    return Features{curvatures, treeBB, density, slope, stdDev, distsOfInterest, coef};
+    return Features{curvatures, _treeBB, density, slope, stdDev, distsOfInterest, coef};
 }
 
 // Features computeLandingPointFeatures(
