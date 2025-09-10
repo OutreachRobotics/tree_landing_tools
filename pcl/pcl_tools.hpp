@@ -90,6 +90,7 @@ struct DepthMapData {
 struct DistsOfInterest {
     float distTop;
     float distBbox2D;
+    float ratioBbox2D;
     float distMinBoundary2D;
     float distMinBoundary3D;
     float ratioMinBoundary2D;

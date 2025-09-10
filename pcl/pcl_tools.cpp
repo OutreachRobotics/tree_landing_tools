@@ -1566,8 +1566,8 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloudFromEdge(
                 dist = sign * (*min_dist2D_it);
             }
 
-            std::cout << "is_inside: " << is_inside << std::endl;
-            std::cout << "dist: " << dist << std::endl;
+            // std::cout << "is_inside: " << is_inside << std::endl;
+            // std::cout << "dist: " << dist << std::endl;
 
             if(dist < _max_dist_from_edge) {
                 candidate_points.push_back({point, dist});
@@ -2408,6 +2408,8 @@ Features computeFeatures(
 
     distsOfInterest.distTop = highestPoint.z - _landingPoint.z;
     distsOfInterest.distBbox2D = distanceToOBB2D(_landingPoint, _treeBB);
+    double min_tree_dia = std::min(_treeBB.width, _treeBB.height);
+    distsOfInterest.ratioBbox2D = distsOfInterest.distBbox2D / min_tree_dia;
     distsOfInterest = computeDistancesToPolygon(_landingPoint, _hull_polygon, _treeBB, distsOfInterest);
 
     return Features{curvatures, _treeBB, density, slope, stdDev, distsOfInterest, coef};
