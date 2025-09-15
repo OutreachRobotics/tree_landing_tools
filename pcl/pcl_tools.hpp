@@ -7,10 +7,6 @@
 #include <optional>
 #include <unordered_set>
 
-#if defined(ROS_VERSION) && ROS_VERSION == 2
-#include <pcl_conversions/pcl_conversions.h>
-#endif
-
 #include <pcl/common/centroid.h>
 #include <pcl/common/common.h>
 #include <pcl/common/distances.h>
@@ -44,15 +40,15 @@ constexpr int HIGH_VIEW = 99999;
 struct BoundingBox {
     float min_x, max_x, min_y, max_y, min_z, max_z;
     float width, height, depth;
-    float volume;
     Eigen::Vector3f centroid;
+    float volume;
 
     BoundingBox() {
         const float nan_val = std::numeric_limits<float>::quiet_NaN();
         min_x = max_x = min_y = max_y = min_z = max_z = nan_val;
         width = height = depth = nan_val;
-        volume = nan_val;
         centroid.fill(nan_val);
+        volume = nan_val;
     }
 
     BoundingBox(const Eigen::Vector3f& min_pt, const Eigen::Vector3f& max_pt):
