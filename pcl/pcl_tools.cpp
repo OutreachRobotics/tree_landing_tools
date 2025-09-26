@@ -1624,10 +1624,62 @@ double distanceToBBSq(const pcl::PointXYZRGB& _point, const pcl_tools::BoundingB
     }
 }
 
+DistsOfInterest computeDistancesToPolygon(
+    const pcl::PointXYZRGB& _landingPoint,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _hull_polygon,
+    const pcl_tools::OrientedBoundingBox& _treeBB,
+    const DistsOfInterest& _distsOfInterest)
+{
+    DistsOfInterest output = _distsOfInterest;
+    double min_tree_dia = std::min(_treeBB.width, _treeBB.height);
+
+    if (_hull_polygon->points.size() < 3) {
+        return output;
+    }
+
+    bool is_inside = pcl::isPointIn2DPolygon(_landingPoint, *_hull_polygon);
+    double sign = is_inside ? -1.0 : 1.0;
+    // double magnitude = sign * pointToPolygonDistance(_landingPoint, *_hull_polygon);
+    // output.distMinBoundary2D = magnitude;
+
+    std::vector<float> distances2D;
+    std::vector<float> distances3D;
+    distances2D.reserve(_hull_polygon->points.size());
+    distances3D.reserve(_hull_polygon->points.size());
+    for(const auto& point : _hull_polygon->points) {
+        float dx = _landingPoint.x - point.x;
+        float dy = _landingPoint.y - point.y;
+        float dz = _landingPoint.z - point.z;
+
+        distances2D.push_back(std::sqrt(dx*dx + dy*dy));
+        distances3D.push_back(std::sqrt(dx*dx + dy*dy + dz*dz));
+    }
+
+    auto min_dist2D_it = std::min_element(distances2D.begin(), distances2D.end());
+    if (min_dist2D_it != distances2D.end()) {
+        output.distMinBoundary2D = sign * (*min_dist2D_it);
+    }
+
+    auto min_dist3D_it = std::min_element(distances3D.begin(), distances3D.end());
+    if (min_dist3D_it != distances2D.end()) {
+        output.distMinBoundary3D = sign * (*min_dist3D_it);
+    }
+
+    output.ratioMinBoundary2D = output.distMinBoundary2D / min_tree_dia;
+    output.ratioMinBoundary3D = output.distMinBoundary3D / min_tree_dia;
+
+    // output.distAvgBoundary2D = sign * std::accumulate(distances2D.begin(), distances2D.end(), 0.0) / distances2D.size();
+    // output.distAvgBoundary3D = sign * std::accumulate(distances3D.begin(), distances3D.end(), 0.0) / distances3D.size();
+
+    return output;
+}
+
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractClosestCluster(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
     const std::vector<pcl::PointIndices>& _clusters,
-    const pcl::PointXYZRGB& _point)
+    const pcl::PointXYZRGB& _point,
+    const int _n_neighbors_search,
+    const double _alpha)
 {
     std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> extracted_clusters = extractClusters(_cloud, _clusters);
 
@@ -1636,14 +1688,26 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractClosestCluster(
     }
 
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr closest_cluster = nullptr;
-    double min_distance = std::numeric_limits<double>::max();
+    double min_dist = std::numeric_limits<double>::max();
     for (const auto& cluster : extracted_clusters)
     {
-        OrientedBoundingBox oBbox = getOBB(cluster);
-        double dist = distanceToOBBCenter2D(_point, oBbox);
+        OrientedBoundingBox obb = getOBB(cluster);
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr hull_polygon = extractConcaveHull(
+            cluster,
+            obb,
+            _n_neighbors_search,
+            _alpha
+        );
 
-        if (dist < min_distance) {
-            min_distance = dist;
+        DistsOfInterest distsOfInterest = computeDistancesToPolygon(
+            _point,
+            hull_polygon,
+            obb,
+            DistsOfInterest()
+        );
+
+        if (distsOfInterest.distMinBoundary2D < min_dist) {
+            min_dist = distsOfInterest.distMinBoundary2D;
             closest_cluster = cluster;
         }
     }
@@ -2297,56 +2361,6 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeConcaveHull2D(
     std::cout << "hull_polygon size: " << hull_polygon->points.size() << std::endl;
 
     return hull_polygon;
-}
-
-DistsOfInterest computeDistancesToPolygon(
-    const pcl::PointXYZRGB& _landingPoint,
-    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _hull_polygon,
-    const pcl_tools::OrientedBoundingBox& _treeBB,
-    const DistsOfInterest& _distsOfInterest)
-{
-    DistsOfInterest output = _distsOfInterest;
-    double min_tree_dia = std::min(_treeBB.width, _treeBB.height);
-
-    if (_hull_polygon->points.size() < 3) {
-        return output;
-    }
-
-    bool is_inside = pcl::isPointIn2DPolygon(_landingPoint, *_hull_polygon);
-    double sign = is_inside ? -1.0 : 1.0;
-    // double magnitude = sign * pointToPolygonDistance(_landingPoint, *_hull_polygon);
-    // output.distMinBoundary2D = magnitude;
-
-    std::vector<float> distances2D;
-    std::vector<float> distances3D;
-    distances2D.reserve(_hull_polygon->points.size());
-    distances3D.reserve(_hull_polygon->points.size());
-    for(const auto& point : _hull_polygon->points) {
-        float dx = _landingPoint.x - point.x;
-        float dy = _landingPoint.y - point.y;
-        float dz = _landingPoint.z - point.z;
-
-        distances2D.push_back(std::sqrt(dx*dx + dy*dy));
-        distances3D.push_back(std::sqrt(dx*dx + dy*dy + dz*dz));
-    }
-
-    auto min_dist2D_it = std::min_element(distances2D.begin(), distances2D.end());
-    if (min_dist2D_it != distances2D.end()) {
-        output.distMinBoundary2D = sign * (*min_dist2D_it);
-    }
-
-    auto min_dist3D_it = std::min_element(distances3D.begin(), distances3D.end());
-    if (min_dist3D_it != distances2D.end()) {
-        output.distMinBoundary3D = sign * (*min_dist3D_it);
-    }
-
-    output.ratioMinBoundary2D = output.distMinBoundary2D / min_tree_dia;
-    output.ratioMinBoundary3D = output.distMinBoundary3D / min_tree_dia;
-
-    // output.distAvgBoundary2D = sign * std::accumulate(distances2D.begin(), distances2D.end(), 0.0) / distances2D.size();
-    // output.distAvgBoundary3D = sign * std::accumulate(distances3D.begin(), distances3D.end(), 0.0) / distances3D.size();
-
-    return output;
 }
 
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr  extractConcaveHull(

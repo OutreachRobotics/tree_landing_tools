@@ -296,7 +296,9 @@ std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> extractClusters(
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractClosestCluster(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
     const std::vector<pcl::PointIndices>& _clusters,
-    const pcl::PointXYZRGB& _point
+    const pcl::PointXYZRGB& _point,
+    const int _n_neighbors_search,
+    const double _alpha
 );
 
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr generateGridCloudFromCenter(
