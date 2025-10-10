@@ -487,13 +487,13 @@ void colorSegmentedPoints(
 );
 
 // Data viz
-bool checkInboundPoints(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _ogCloud, const std::vector<float>& landing);
+bool checkInboundPoints(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _ogCloud, const pcl::PointXYZRGB& _landing);
 
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr centerCloud(pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud);
 
 void view(
     const std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr>& clouds,
-    OrientedBoundingBox _obb,
+    const OrientedBoundingBox* _obb = nullptr,
     const std::vector<pcl::PointXYZRGB>* _spheres = nullptr,
     const pcl::ModelCoefficients::Ptr _plane = nullptr
 );
