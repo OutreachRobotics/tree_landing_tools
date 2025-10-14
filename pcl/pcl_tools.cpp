@@ -2334,6 +2334,53 @@ DistsOfInterest computeDistToPointsOfInterest(
 //     return is_inside;
 // }
 
+// Helper struct to pair a point with its angle for sorting
+struct PointWithAngle {
+    pcl::PointXYZRGB point;
+    float angle;
+};
+
+// Custom comparison function for std::sort
+bool comparePointsByAngle(const PointWithAngle& a, const PointWithAngle& b) {
+    return a.angle < b.angle;
+}
+
+/**
+ * @brief Sorts the vertices of a 2D polygon (point cloud) into a counter-clockwise order.
+ * @param _polygon The point cloud representing the polygon vertices. This cloud is modified in place.
+ */
+void sortPolygonVertices(pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _polygon) {
+    if (_polygon->size() < 3) {
+        // Not enough points to form a polygon, do nothing.
+        return;
+    }
+
+    // 1. Calculate the 2D centroid of the polygon.
+    Eigen::Vector4f centroid;
+    pcl::compute3DCentroid(*_polygon, centroid);
+
+    // 2. Create a vector of points with their angles relative to the centroid.
+    std::vector<PointWithAngle> points_with_angles;
+    points_with_angles.reserve(_polygon->size());
+    for (const auto& pt : _polygon->points) {
+        float angle = std::atan2(pt.y - centroid[1], pt.x - centroid[0]);
+        points_with_angles.push_back({pt, angle});
+    }
+
+    // 3. Sort the points based on their calculated angle.
+    std::sort(points_with_angles.begin(), points_with_angles.end(), comparePointsByAngle);
+
+    // 4. Recreate the point cloud with the sorted points.
+    _polygon->points.clear();
+    for (const auto& pwa : points_with_angles) {
+        _polygon->points.push_back(pwa.point);
+    }
+    
+    // Update width/height for consistency.
+    _polygon->width = _polygon->points.size();
+    _polygon->height = 1;
+}
+
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeConcaveHull2D(
     const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr& _boundaryCloud,
     double _alpha)
@@ -2351,6 +2398,8 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeConcaveHull2D(
     chull.setAlpha(_alpha);
     chull.setDimension(2);
     chull.reconstruct(*hull_polygon);
+
+    sortPolygonVertices(hull_polygon);
 
     if (hull_polygon->points.size() < 3) {
         std::cerr << "Error: Concave hull resulted in fewer than 3 points. Try a larger alpha value." << std::endl;
