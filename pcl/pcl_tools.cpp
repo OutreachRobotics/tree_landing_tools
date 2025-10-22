@@ -2266,6 +2266,7 @@ DistsOfInterest computeDistToPointsOfInterest(
     vec_distsOfInterest.reserve(_pointsOfInterest.size());
 
     float min_diameter = std::min(_treeBB.width, _treeBB.height);
+    float min_radius = min_diameter / 2.0;
     for(size_t i = 0; i < _pointsOfInterest.size(); ++i)
     {
         const pcl::PointXYZRGB pointOfInterest = _pointsOfInterest[i];
@@ -2273,8 +2274,8 @@ DistsOfInterest computeDistToPointsOfInterest(
         float dist2D = computePointsDist2D(_landingPoint, pointOfInterest);
         float dist3D = computePointsDist3D(_landingPoint, pointOfInterest);
 
-        float ratio2D = dist2D/min_diameter;
-        float ratio3D = dist3D/min_diameter;
+        float ratio2D = dist2D/min_radius;
+        float ratio3D = dist3D/min_radius;
 
         std::vector<float> row;
         row.push_back(dist2D);
@@ -2686,8 +2687,8 @@ std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centerItems4Viewing(
                 sphere.y = transformed_point.y();
                 sphere.z = transformed_point.z();
             }
+            std::cout << "Centered spheres" << std::endl;
         }
-        std::cout << "Centered spheres" << std::endl;
 
         if(_plane != nullptr && !_plane->values.empty()) {
             // Convert the plane's std::vector coefficients to an Eigen::Vector4f
@@ -2695,8 +2696,8 @@ std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centerItems4Viewing(
             Eigen::Vector4f transformed_plane_coeffs;
             pcl::transformPlane(input_plane_coeffs, transformed_plane_coeffs, transform);
             Eigen::Map<Eigen::Vector4f>(_plane->values.data()) = transformed_plane_coeffs;
+            std::cout << "Centered plane" << std::endl;
         }
-        std::cout << "Centered plane" << std::endl;
     }
     else {
         // 1. Compute the centroid of the first cloud to use as the origin
@@ -2716,6 +2717,21 @@ std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centerItems4Viewing(
             centered_clouds.push_back(centered_cloud);
         }
         std::cout << "Centered clouds" << std::endl;
+
+        if(_spheres != nullptr) {
+            for(auto& sphere : *_spheres) {
+                Eigen::Vector3f point_as_eigen = sphere.getVector3fMap();
+
+                // 2. Perform the transformation using Eigen's multiplication
+                Eigen::Vector3f transformed_point = transform * point_as_eigen;
+
+                // 3. Copy the transformed coordinates back to your original PCL point
+                sphere.x = transformed_point.x();
+                sphere.y = transformed_point.y();
+                sphere.z = transformed_point.z();
+            }
+            std::cout << "Centered spheres" << std::endl;
+        }
     }
 
     return centered_clouds;
@@ -2755,6 +2771,10 @@ void view(
     else if (_obb != nullptr) {
         view_obb = *_obb;
         centered_clouds = centerItems4Viewing(_clouds, &view_obb);
+    }
+    else if (_obb == nullptr && _spheres != nullptr) {
+        view_spheres = *_spheres;
+        centered_clouds = centerItems4Viewing(_clouds, nullptr, &view_spheres);
     }
     else {
         centered_clouds = centerItems4Viewing(_clouds);
