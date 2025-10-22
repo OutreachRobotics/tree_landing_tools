@@ -88,9 +88,7 @@ struct DistsOfInterest {
     float distBbox2D;
     float ratioBbox2D;
     float distMinBoundary2D;
-    float distMinBoundary3D;
     float ratioMinBoundary2D;
-    float ratioMinBoundary3D;
 
     float distTreeCenter2D;
     float distTreeCenter3D;
@@ -297,7 +295,6 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractClosestCluster(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
     const std::vector<pcl::PointIndices>& _clusters,
     const pcl::PointXYZRGB& _point,
-    const int _n_neighbors_search,
     const double _alpha
 );
 
@@ -423,13 +420,6 @@ float computePointsDist3D(const pcl::PointXYZRGB& point1, const pcl::PointXYZRGB
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeConcaveHull2D(
     const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr& _boundaryCloud,
     double _alpha
-);
-
-pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractConcaveHull(
-    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
-    const pcl_tools::OrientedBoundingBox& _treeBB,
-    const int _n_neighbors_search,
-    const double _alpha
 );
 
 DistsOfInterest computeDistToPointsOfInterest(

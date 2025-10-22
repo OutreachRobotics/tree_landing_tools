@@ -1632,6 +1632,7 @@ DistsOfInterest computeDistancesToPolygon(
 {
     DistsOfInterest output = _distsOfInterest;
     double min_tree_dia = std::min(_treeBB.width, _treeBB.height);
+    double min_tree_radius = min_tree_dia / 2.0;
 
     if (_hull_polygon->points.size() < 3) {
         return output;
@@ -1643,16 +1644,13 @@ DistsOfInterest computeDistancesToPolygon(
     // output.distMinBoundary2D = magnitude;
 
     std::vector<float> distances2D;
-    std::vector<float> distances3D;
     distances2D.reserve(_hull_polygon->points.size());
-    distances3D.reserve(_hull_polygon->points.size());
     for(const auto& point : _hull_polygon->points) {
         float dx = _landingPoint.x - point.x;
         float dy = _landingPoint.y - point.y;
         float dz = _landingPoint.z - point.z;
 
         distances2D.push_back(std::sqrt(dx*dx + dy*dy));
-        distances3D.push_back(std::sqrt(dx*dx + dy*dy + dz*dz));
     }
 
     auto min_dist2D_it = std::min_element(distances2D.begin(), distances2D.end());
@@ -1660,16 +1658,7 @@ DistsOfInterest computeDistancesToPolygon(
         output.distMinBoundary2D = sign * (*min_dist2D_it);
     }
 
-    auto min_dist3D_it = std::min_element(distances3D.begin(), distances3D.end());
-    if (min_dist3D_it != distances2D.end()) {
-        output.distMinBoundary3D = sign * (*min_dist3D_it);
-    }
-
-    output.ratioMinBoundary2D = output.distMinBoundary2D / min_tree_dia;
-    output.ratioMinBoundary3D = output.distMinBoundary3D / min_tree_dia;
-
-    // output.distAvgBoundary2D = sign * std::accumulate(distances2D.begin(), distances2D.end(), 0.0) / distances2D.size();
-    // output.distAvgBoundary3D = sign * std::accumulate(distances3D.begin(), distances3D.end(), 0.0) / distances3D.size();
+    output.ratioMinBoundary2D = output.distMinBoundary2D / min_tree_radius;
 
     return output;
 }
@@ -1678,7 +1667,6 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractClosestCluster(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _cloud,
     const std::vector<pcl::PointIndices>& _clusters,
     const pcl::PointXYZRGB& _point,
-    const int _n_neighbors_search,
     const double _alpha)
 {
     std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> extracted_clusters = extractClusters(_cloud, _clusters);
@@ -1691,14 +1679,12 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractClosestCluster(
     double min_dist = std::numeric_limits<double>::max();
     for (const auto& cluster : extracted_clusters)
     {
-        OrientedBoundingBox obb = getOBB(cluster);
-        pcl::PointCloud<pcl::PointXYZRGB>::Ptr hull_polygon = extractConcaveHull(
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr hull_polygon = pcl_tools::computeConcaveHull2D(
             cluster,
-            obb,
-            _n_neighbors_search,
             _alpha
         );
 
+        OrientedBoundingBox obb = getOBB(cluster);
         DistsOfInterest distsOfInterest = computeDistancesToPolygon(
             _point,
             hull_polygon,
@@ -2383,19 +2369,19 @@ void sortPolygonVertices(pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _polygon) {
 }
 
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeConcaveHull2D(
-    const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr& _boundaryCloud,
+    const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr& _cloud,
     double _alpha)
 {
     // --- Input Validation ---
-    if (_boundaryCloud->points.size() < 3) {
+    if (_cloud->points.size() < 3) {
         std::cerr << "Error: Input cloud needs at least 3 points to form a polygon." << std::endl;
         return pcl::PointCloud<pcl::PointXYZRGB>::Ptr();
     }
 
     // --- 1. Create Hull ---
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr hull_polygon(new pcl::PointCloud<pcl::PointXYZRGB>(*_boundaryCloud));
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr hull_polygon(new pcl::PointCloud<pcl::PointXYZRGB>(*_cloud));
     pcl::ConcaveHull<pcl::PointXYZRGB> chull;
-    chull.setInputCloud(_boundaryCloud);
+    chull.setInputCloud(_cloud);
     chull.setAlpha(_alpha);
     chull.setDimension(2);
     chull.reconstruct(*hull_polygon);
@@ -2407,30 +2393,8 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeConcaveHull2D(
         return pcl::PointCloud<pcl::PointXYZRGB>::Ptr();
     }
 
-    std::cout << "_boundaryCloud size: " << _boundaryCloud->points.size() << std::endl;
+    std::cout << "_cloud size: " << _cloud->points.size() << std::endl;
     std::cout << "hull_polygon size: " << hull_polygon->points.size() << std::endl;
-
-    return hull_polygon;
-}
-
-pcl::PointCloud<pcl::PointXYZRGB>::Ptr  extractConcaveHull(
-    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
-    const pcl_tools::OrientedBoundingBox& _treeBB,
-    const int _n_neighbors_search,
-    const double _alpha)
-{
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr treeNormMatchedCloud(new pcl::PointCloud<pcl::PointXYZRGB>(*_treeCloud));
-    pcl::PointCloud<pcl::PointNormal>::Ptr normalsCloud = pcl_tools::extractNormalsPC(
-        treeNormMatchedCloud,
-        _n_neighbors_search,
-        pcl::PointXYZRGB(_treeBB.centroid[0], _treeBB.centroid[1], _treeBB.centroid[2], 255, 255, 255)
-    );
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr boundaryCloud(new pcl::PointCloud<pcl::PointXYZRGB>(*treeNormMatchedCloud));
-    pcl_tools::extractBoundary(boundaryCloud, normalsCloud, _n_neighbors_search);
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr hull_polygon = pcl_tools::computeConcaveHull2D(
-        boundaryCloud,
-        _alpha
-    );
 
     return hull_polygon;
 }
@@ -2473,7 +2437,8 @@ Features computeFeatures(
     distsOfInterest.distTop = highestPoint.z - _landingPoint.z;
     distsOfInterest.distBbox2D = distanceToOBB2D(_landingPoint, _treeBB);
     double min_tree_dia = std::min(_treeBB.width, _treeBB.height);
-    distsOfInterest.ratioBbox2D = distsOfInterest.distBbox2D / min_tree_dia;
+    double min_tree_radius = min_tree_dia / 2.0;
+    distsOfInterest.ratioBbox2D = distsOfInterest.distBbox2D / min_tree_radius;
     distsOfInterest = computeDistancesToPolygon(_landingPoint, _hull_polygon, _treeBB, distsOfInterest);
 
     return Features{curvatures, _treeBB, density, slope, stdDev, distsOfInterest, coef};
