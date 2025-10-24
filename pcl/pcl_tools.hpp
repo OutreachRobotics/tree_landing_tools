@@ -422,6 +422,13 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeConcaveHull2D(
     double _alpha
 );
 
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr extractConcaveHullArchive(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
+    const pcl_tools::OrientedBoundingBox& _treeBB,
+    const int _n_neighbors_search,
+    const double _alpha
+);
+
 DistsOfInterest computeDistToPointsOfInterest(
     const pcl::PointXYZRGB& _landingPoint,
     const std::vector<pcl::PointXYZRGB>& _pointsOfInterest,

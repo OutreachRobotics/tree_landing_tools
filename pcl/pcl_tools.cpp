@@ -2399,6 +2399,28 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr computeConcaveHull2D(
     return hull_polygon;
 }
 
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr  extractConcaveHullArchive(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
+    const pcl_tools::OrientedBoundingBox& _treeBB,
+    const int _n_neighbors_search,
+    const double _alpha)
+{
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr treeNormMatchedCloud(new pcl::PointCloud<pcl::PointXYZRGB>(*_treeCloud));
+    pcl::PointCloud<pcl::PointNormal>::Ptr normalsCloud = pcl_tools::extractNormalsPC(
+        treeNormMatchedCloud,
+        _n_neighbors_search,
+        pcl::PointXYZRGB(_treeBB.centroid[0], _treeBB.centroid[1], _treeBB.centroid[2], 255, 255, 255)
+    );
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr boundaryCloud(new pcl::PointCloud<pcl::PointXYZRGB>(*treeNormMatchedCloud));
+    pcl_tools::extractBoundary(boundaryCloud, normalsCloud, _n_neighbors_search);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr hull_polygon = pcl_tools::computeConcaveHull2D(
+        boundaryCloud,
+        _alpha
+    );
+
+    return hull_polygon;
+}
+
 Features computeFeatures(
     const pcl::PointXYZRGB& _landingPoint,
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
