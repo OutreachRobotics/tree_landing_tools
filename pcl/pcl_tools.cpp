@@ -2423,6 +2423,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr  extractConcaveHullArchive(
 
 Features computeFeatures(
     const pcl::PointXYZRGB& _landingPoint,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _segCloud,
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
     const pcl_tools::OrientedBoundingBox& _treeBB,
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _hull_polygon,
@@ -2431,7 +2432,7 @@ Features computeFeatures(
     const float& _radius)
 {
     pcl::PointXYZRGB treeCenterPoint(_treeBB.centroid[0], _treeBB.centroid[1], 0.0, 255, 255, 255);
-    projectPoint(_treeCloud, treeCenterPoint);
+    projectPoint(_segCloud, treeCenterPoint);
 
     pcl::PrincipalCurvatures curvatures = computeCurvature(_landingSurfaceCloud, _landingPoint, _lz_factor*_radius);
     float density = computeSurfaceDensity(_landingSurfaceCloud, _lz_factor*_radius);
@@ -2444,7 +2445,7 @@ Features computeFeatures(
     pcl::PointXYZRGB midwayPoint;
     midwayPoint.x = (treeCenterPoint.x + highestPoint.x) / 2.0f;
     midwayPoint.y = (treeCenterPoint.y + highestPoint.y) / 2.0f;
-    projectPoint(_treeCloud, midwayPoint);
+    projectPoint(_segCloud, midwayPoint);
 
     DistsOfInterest distsOfInterest = computeDistToPointsOfInterest(
         _landingPoint, 
@@ -2520,6 +2521,7 @@ Features computeFeatures(
 // }
 
 std::vector<pcl_tools::Features> computeFeaturesList(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _segCloud,
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
     const pcl_tools::OrientedBoundingBox& _treeBB,
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _hull_polygon,
@@ -2530,7 +2532,7 @@ std::vector<pcl_tools::Features> computeFeaturesList(
 {
     std::vector<Features> features_list;
     for(const auto& point : _gridCloud->points) {
-        pcl::PointCloud<pcl::PointXYZRGB>::Ptr landingSurfaceCloud(new pcl::PointCloud<pcl::PointXYZRGB>(*_treeCloud));
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr landingSurfaceCloud(new pcl::PointCloud<pcl::PointXYZRGB>(*_segCloud));
         extractNeighborCirclePC(landingSurfaceCloud, point, _landing_zone_factor*_radius);
 
         if(landingSurfaceCloud->size() < _min_lz_points) {
@@ -2538,7 +2540,7 @@ std::vector<pcl_tools::Features> computeFeaturesList(
             continue;
         }
 
-        Features features = computeFeatures(point, _treeCloud, _treeBB, _hull_polygon, landingSurfaceCloud, _landing_zone_factor, _radius);
+        Features features = computeFeatures(point, _segCloud, _treeCloud, _treeBB, _hull_polygon, landingSurfaceCloud, _landing_zone_factor, _radius);
         features_list.push_back(features);
     }
 

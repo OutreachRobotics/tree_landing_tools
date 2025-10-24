@@ -437,6 +437,7 @@ DistsOfInterest computeDistToPointsOfInterest(
 
 Features computeFeatures(
     const pcl::PointXYZRGB& _landingPoint,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _segCloud,
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
     const pcl_tools::OrientedBoundingBox& _treeBB,  
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _hull_polygon,
@@ -447,7 +448,7 @@ Features computeFeatures(
 
 Features computeLandingPointFeatures(
     const pcl::PointXYZRGB& _landingPoint,
-    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _segCloud
 );
 
 Features computeLandingZoneFeatures(
@@ -460,6 +461,7 @@ Features computeLandingZoneFeatures(
 );
 
 std::vector<pcl_tools::Features> computeFeaturesList(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _segCloud,
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _treeCloud,
     const pcl_tools::OrientedBoundingBox& _treeBB,
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _hull_polygon,
