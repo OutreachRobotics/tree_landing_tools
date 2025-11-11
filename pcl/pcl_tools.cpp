@@ -1355,6 +1355,18 @@ std::vector<pcl::PointIndices> computeWatershed(
         for(size_t i=0; i < clusters_vec.size(); ++i) {
             colorSegmentedPoints(_cloud, clusters_vec[i], colorTable[i]);
         }
+
+        for (auto& point : *_cloud)
+        {
+            if (point.r == 255 && 
+                point.g == 255 && 
+                point.b == 255)
+            {
+                point.r = 255;
+                point.g = 255;
+                point.b = 0;
+            }
+        }
     }
     
     // if(has_landing_point){
@@ -2773,11 +2785,17 @@ void view(
     std::cout << "Centered all items" << std::endl;
 
     pcl::visualization::PCLVisualizer::Ptr viewer(new pcl::visualization::PCLVisualizer("3D Viewer"));
-    viewer->setBackgroundColor(0, 0, 0);
+    viewer->setBackgroundColor(1.0, 1.0, 1.0);
 
     int i = 0;
     for (pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud : centered_clouds) {
-        addCloud2View(viewer, cloud, "cloud" + std::to_string(i));
+        std::string cloud_id = "cloud" + std::to_string(i);
+        addCloud2View(viewer, cloud, cloud_id);
+        viewer->setPointCloudRenderingProperties(
+            pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 
+            5, 
+            cloud_id
+        );
         ++i;
     }
     if(_plane != nullptr){viewer->addPlane(*view_plane, "plane");}
@@ -2786,7 +2804,7 @@ void view(
         int sphere_id = 0;
         for(const auto& spheres : view_spheres) {
             std::string unique_id = "centroid_" + std::to_string(sphere_id);
-            viewer->addSphere(spheres, radius, 255, 255, 255, unique_id);
+            viewer->addSphere(spheres, radius, 0.5, 0.5, 0.5, unique_id);
             ++sphere_id;
         }
     }
@@ -2797,7 +2815,14 @@ void view(
     }
 
     viewer->addCoordinateSystem(1.0);
-    viewer->initCameraParameters();
+    // viewer->initCameraParameters();
+
+    viewer->setCameraPosition(
+        -12.0, -12.0, 25.0,   // Camera position
+        0.0, 0.0, 0.0,   // Viewpoint (looking at the origin)
+        0.0, 0.0, 1.0    // Up vector (Z-axis is up)
+    );
+
     // https://github.com/PointCloudLibrary/pcl/issues/5237#issuecomment-1114255056
     // spin() instead of spinOnce() avoids crash
     viewer->spin();
