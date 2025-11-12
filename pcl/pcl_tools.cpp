@@ -402,6 +402,122 @@ OrientedBoundingBox getOBB(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _pointC
     return obb;
 }
 
+OrientedBoundingBox getZAlignedOBB(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _pointCloud,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _hullCloud
+){
+    // 2. Compute moment of inertia on the 2D HULL, not the original cloud
+    pcl::MomentOfInertiaEstimation<pcl::PointXYZRGB> feature_extractor;
+    feature_extractor.setInputCloud(_hullCloud);
+    feature_extractor.compute();
+
+    // 3. Define variables for the hull's OBB
+    pcl::PointXYZRGB obb_position_hull; 
+    Eigen::Matrix3f obb_rotation_matrix_3D;
+    pcl::PointXYZRGB min_point_OBB_hull;
+    pcl::PointXYZRGB max_point_OBB_hull;
+
+    // 4. Get the OBB (this will be slightly tilted, which we'll fix)
+    feature_extractor.getOBB(min_point_OBB_hull, max_point_OBB_hull, obb_position_hull, obb_rotation_matrix_3D);
+    
+    // --- 5. FORCE Z-ALIGNMENT ---
+    
+    // Get the OBB's main X-axis from the 3D rotation
+    Eigen::Vector3f x_axis_3D = obb_rotation_matrix_3D.col(0);
+
+    // Calculate the 2D yaw angle by projecting the X-axis onto the XY plane
+    // This gives us the pure Z-rotation and ignores any X/Y tilt.
+    float yaw_z_angle = std::atan2(x_axis_3D.y(), x_axis_3D.x());
+
+    // Create a new, clean quaternion using ONLY the Z-rotation
+    Eigen::Quaternionf z_aligned_rotation(Eigen::AngleAxisf(yaw_z_angle, Eigen::Vector3f::UnitZ()));
+
+    // --- 6. GET Z-RANGE from the original 3D cloud ---
+    pcl::PointXYZRGB min_point_cloud;
+    pcl::PointXYZRGB max_point_cloud;
+    pcl::getMinMax3D(*_pointCloud, min_point_cloud, max_point_cloud);
+
+    // 7. Construct the final Z-aligned OBB
+    OrientedBoundingBox obb;
+    
+    // Centroid: X/Y from the hull's OBB, Z from the full cloud's center
+    obb.centroid = Eigen::Vector3f(
+        obb_position_hull.x, 
+        obb_position_hull.y, 
+        (min_point_cloud.z + max_point_cloud.z) / 2.0f
+    );
+
+    // Rotation: The new, clean Z-aligned rotation
+    obb.rotation = z_aligned_rotation.normalized();
+    
+    // Dimensions: X/Y from the hull's OBB, Z from the full cloud's range
+    obb.width = max_point_OBB_hull.x - min_point_OBB_hull.x;
+    obb.height = max_point_OBB_hull.y - min_point_OBB_hull.y;
+    obb.depth = max_point_cloud.z - min_point_cloud.z;
+    
+    return obb;
+}
+
+OrientedBoundingBox getZAlignedOBB(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _pointCloud, const double _CONCAVE_HULL_ALPHA)
+{
+    // 1. Get the 2D hull (footprint)
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr hull_polygon = pcl_tools::computeConcaveHull2D(
+        _pointCloud,
+        _CONCAVE_HULL_ALPHA
+    );
+
+    // 2. Compute moment of inertia on the 2D HULL, not the original cloud
+    pcl::MomentOfInertiaEstimation<pcl::PointXYZRGB> feature_extractor;
+    feature_extractor.setInputCloud(hull_polygon); // <-- Use hull_polygon
+    feature_extractor.compute();
+
+    // 3. Define variables for the hull's OBB
+    pcl::PointXYZRGB obb_position_hull; 
+    Eigen::Matrix3f obb_rotation_matrix_3D;
+    pcl::PointXYZRGB min_point_OBB_hull;
+    pcl::PointXYZRGB max_point_OBB_hull;
+
+    // 4. Get the OBB (this will be slightly tilted, which we'll fix)
+    feature_extractor.getOBB(min_point_OBB_hull, max_point_OBB_hull, obb_position_hull, obb_rotation_matrix_3D);
+    
+    // --- 5. FORCE Z-ALIGNMENT ---
+    
+    // Get the OBB's main X-axis from the 3D rotation
+    Eigen::Vector3f x_axis_3D = obb_rotation_matrix_3D.col(0);
+
+    // Calculate the 2D yaw angle by projecting the X-axis onto the XY plane
+    // This gives us the pure Z-rotation and ignores any X/Y tilt.
+    float yaw_z_angle = std::atan2(x_axis_3D.y(), x_axis_3D.x());
+
+    // Create a new, clean quaternion using ONLY the Z-rotation
+    Eigen::Quaternionf z_aligned_rotation(Eigen::AngleAxisf(yaw_z_angle, Eigen::Vector3f::UnitZ()));
+
+    // --- 6. GET Z-RANGE from the original 3D cloud ---
+    pcl::PointXYZRGB min_point_cloud;
+    pcl::PointXYZRGB max_point_cloud;
+    pcl::getMinMax3D(*_pointCloud, min_point_cloud, max_point_cloud);
+
+    // 7. Construct the final Z-aligned OBB
+    OrientedBoundingBox obb;
+    
+    // Centroid: X/Y from the hull's OBB, Z from the full cloud's center
+    obb.centroid = Eigen::Vector3f(
+        obb_position_hull.x, 
+        obb_position_hull.y, 
+        (min_point_cloud.z + max_point_cloud.z) / 2.0f
+    );
+
+    // Rotation: The new, clean Z-aligned rotation
+    obb.rotation = z_aligned_rotation.normalized();
+    
+    // Dimensions: X/Y from the hull's OBB, Z from the full cloud's range
+    obb.width = max_point_OBB_hull.x - min_point_OBB_hull.x;
+    obb.height = max_point_OBB_hull.y - min_point_OBB_hull.y;
+    obb.depth = max_point_cloud.z - min_point_cloud.z;
+    
+    return obb;
+}
+
 pcl::PointXYZRGB getHighestPoint(pcl::PointCloud<pcl::PointXYZRGB>::Ptr _pointCloud)
 {
     // Initialize the highest point with the first point in the cloud

@@ -229,6 +229,16 @@ pcl_tools::BoundingBox getBB(
 
 OrientedBoundingBox getOBB(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _pointCloud);
 
+OrientedBoundingBox getZAlignedOBB(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _pointCloud,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _hullCloud
+);
+
+OrientedBoundingBox getZAlignedOBB(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& _pointCloud,
+    const double _CONCAVE_HULL_ALPHA
+);
+
 pcl::PointXYZRGB getHighestPoint(pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloud);
 
 void decimatePC(
