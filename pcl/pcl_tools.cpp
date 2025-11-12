@@ -2642,97 +2642,69 @@ bool checkInboundPoints(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr _ogCloud, c
 std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centerItems4Viewing(
     const std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> _clouds,
     OrientedBoundingBox* _obb = nullptr,
+    pcl::PointXYZRGB* _model = nullptr,
     std::vector<pcl::PointXYZRGB>* _spheres = nullptr,
     pcl::ModelCoefficients::Ptr _plane = nullptr)
 {
-    // Create a vector to store the new, centered clouds
     std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centered_clouds;
-
-    // Return an empty vector if the input is empty
     if (_clouds.empty() || !_clouds[0]) {
         return centered_clouds;
     }
 
+    // Define the transform once, outside the if/else
+    Eigen::Affine3f transform = Eigen::Affine3f::Identity();
+
     if(_obb != nullptr) {
-
-        // 1. Compute the centroid of the first cloud to use as the origin
-        // Eigen::Vector4f centroid;
-        // pcl::compute3DCentroid(*_clouds[0], centroid);
-
-        // 2. Create the transformation matrix to move the centroid to (0,0,0)
-        Eigen::Affine3f transform = Eigen::Affine3f::Identity();
+        // 1. Get transform from OBB centroid
         transform.translation() << -_obb->centroid[0], -_obb->centroid[1], -_obb->centroid[2];
-
-        // 3. Loop through each cloud, apply the same transform, and store the result
-        for (const auto& cloud : _clouds) {
-            auto centered_cloud = pcl::make_shared<pcl::PointCloud<pcl::PointXYZRGB>>();
-            if (cloud) { // Ensure the cloud pointer is valid
-                pcl::transformPointCloud(*cloud, *centered_cloud, transform);
-            }
-            centered_clouds.push_back(centered_cloud);
-        }
-        std::cout << "Centered clouds" << std::endl;
-
         _obb->centroid = Eigen::Vector3f::Zero();
         std::cout << "Centered OBbox" << std::endl;
-
-        if(_spheres != nullptr) {
-            for(auto& sphere : *_spheres) {
-                Eigen::Vector3f point_as_eigen = sphere.getVector3fMap();
-
-                // 2. Perform the transformation using Eigen's multiplication
-                Eigen::Vector3f transformed_point = transform * point_as_eigen;
-
-                // 3. Copy the transformed coordinates back to your original PCL point
-                sphere.x = transformed_point.x();
-                sphere.y = transformed_point.y();
-                sphere.z = transformed_point.z();
-            }
-            std::cout << "Centered spheres" << std::endl;
-        }
-
-        if(_plane != nullptr && !_plane->values.empty()) {
-            // Convert the plane's std::vector coefficients to an Eigen::Vector4f
-            Eigen::Vector4f input_plane_coeffs(_plane->values.data());
-            Eigen::Vector4f transformed_plane_coeffs;
-            pcl::transformPlane(input_plane_coeffs, transformed_plane_coeffs, transform);
-            Eigen::Map<Eigen::Vector4f>(_plane->values.data()) = transformed_plane_coeffs;
-            std::cout << "Centered plane" << std::endl;
-        }
     }
     else {
-        // 1. Compute the centroid of the first cloud to use as the origin
+        // 1. Get transform from the first cloud's centroid
         Eigen::Vector4f centroid;
         pcl::compute3DCentroid(*_clouds[0], centroid);
-
-        // 2. Create the transformation matrix to move the centroid to (0,0,0)
-        Eigen::Affine3f transform = Eigen::Affine3f::Identity();
         transform.translation() << -centroid[0], -centroid[1], -centroid[2];
+    }
 
-        // 3. Loop through each cloud, apply the same transform, and store the result
-        for (const auto& cloud : _clouds) {
-            auto centered_cloud = pcl::make_shared<pcl::PointCloud<pcl::PointXYZRGB>>();
-            if (cloud) { // Ensure the cloud pointer is valid
-                pcl::transformPointCloud(*cloud, *centered_cloud, transform);
-            }
-            centered_clouds.push_back(centered_cloud);
+    // 2. Apply the transform to all clouds
+    for (const auto& cloud : _clouds) {
+        auto centered_cloud = pcl::make_shared<pcl::PointCloud<pcl::PointXYZRGB>>();
+        if (cloud) {
+            pcl::transformPointCloud(*cloud, *centered_cloud, transform);
         }
-        std::cout << "Centered clouds" << std::endl;
+        centered_clouds.push_back(centered_cloud);
+    }
+    std::cout << "Centered clouds" << std::endl;
 
-        if(_spheres != nullptr) {
-            for(auto& sphere : *_spheres) {
-                Eigen::Vector3f point_as_eigen = sphere.getVector3fMap();
+    if(_model != nullptr) {
+        Eigen::Vector3f point_as_eigen = _model->getVector3fMap();
+        Eigen::Vector3f transformed_point = transform * point_as_eigen;
+        _model->x = transformed_point.x();
+        _model->y = transformed_point.y();
+        _model->z = transformed_point.z();
+        std::cout << "Centered model" << std::endl;
+    }
 
-                // 2. Perform the transformation using Eigen's multiplication
-                Eigen::Vector3f transformed_point = transform * point_as_eigen;
-
-                // 3. Copy the transformed coordinates back to your original PCL point
-                sphere.x = transformed_point.x();
-                sphere.y = transformed_point.y();
-                sphere.z = transformed_point.z();
-            }
-            std::cout << "Centered spheres" << std::endl;
+    // 3. Apply the transform to all spheres (if they exist)
+    if(_spheres != nullptr) {
+        for(auto& sphere : *_spheres) {
+            Eigen::Vector3f point_as_eigen = sphere.getVector3fMap();
+            Eigen::Vector3f transformed_point = transform * point_as_eigen;
+            sphere.x = transformed_point.x();
+            sphere.y = transformed_point.y();
+            sphere.z = transformed_point.z();
         }
+        std::cout << "Centered spheres" << std::endl;
+    }
+
+    // 4. Apply the transform to the plane (if it exists)
+    if(_plane != nullptr && !_plane->values.empty()) {
+        Eigen::Vector4f input_plane_coeffs(_plane->values.data());
+        Eigen::Vector4f transformed_plane_coeffs;
+        pcl::transformPlane(input_plane_coeffs, transformed_plane_coeffs, transform);
+        Eigen::Map<Eigen::Vector4f>(_plane->values.data()) = transformed_plane_coeffs;
+        std::cout << "Centered plane" << std::endl;
     }
 
     return centered_clouds;
@@ -2748,44 +2720,105 @@ void addCloud2View(pcl::visualization::PCLVisualizer::Ptr _viewer, pcl::PointClo
 void view(
     const std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr>& _clouds,
     const OrientedBoundingBox* _obb,
+    const pcl::PointXYZRGB* _model,
     const std::vector<pcl::PointXYZRGB>* _spheres,
     const pcl::ModelCoefficients::Ptr _plane)
 {
     std::cout << "Entering view" << std::endl;
 
-    std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centered_clouds;
     OrientedBoundingBox view_obb;
+    OrientedBoundingBox* p_view_obb = nullptr; // Pointer to our local copy
+    if (_obb != nullptr) {
+        view_obb = *_obb;
+        p_view_obb = &view_obb;
+    }
+
+    pcl::PointXYZRGB view_model;
+    pcl::PointXYZRGB* p_view_model = nullptr; // Pointer to our local copy
+    if (_model != nullptr) {
+        view_model = *_model;
+        p_view_model = &view_model;
+    }
+
+    // Copy spheres if they exist
     std::vector<pcl::PointXYZRGB> view_spheres;
-    pcl::ModelCoefficients::Ptr view_plane;
+    std::vector<pcl::PointXYZRGB>* p_view_spheres = nullptr; // Pointer to our local copy
+    if (_spheres != nullptr) {
+        view_spheres = *_spheres;
+        p_view_spheres = &view_spheres;
+    }
+
+    // Copy plane if it exists
+    pcl::ModelCoefficients::Ptr view_plane = nullptr; // This is a shared_ptr
+    if (_plane != nullptr) {
+        // Create a deep copy of the ModelCoefficients object
+        view_plane = pcl::make_shared<pcl::ModelCoefficients>(*_plane);
+    }
+
+    // 2. Make ONE call to centerItems4Viewing.
+    //    This call uses our local, modifiable pointers (p_view_obb, etc.).
+    //    The function will modify view_obb, view_spheres, and view_plane in place.
     std::cout << "Calling centerItems4Viewing for clouds" << std::endl;
-    if (_obb != nullptr && _spheres != nullptr && _plane != nullptr) {
-        view_obb = *_obb;
-        view_spheres = *_spheres;
-        view_plane = _plane;
-        centered_clouds = centerItems4Viewing(_clouds, &view_obb, &view_spheres, view_plane);
-    }
-    if (_obb != nullptr && _spheres != nullptr) {
-        view_obb = *_obb;
-        view_spheres = *_spheres;
-        centered_clouds = centerItems4Viewing(_clouds, &view_obb, &view_spheres);
-    }
-    else if (_obb != nullptr) {
-        view_obb = *_obb;
-        centered_clouds = centerItems4Viewing(_clouds, &view_obb);
-    }
-    else if (_obb == nullptr && _spheres != nullptr) {
-        view_spheres = *_spheres;
-        centered_clouds = centerItems4Viewing(_clouds, nullptr, &view_spheres);
-    }
-    else {
-        centered_clouds = centerItems4Viewing(_clouds);
-    }
+    std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centered_clouds = 
+        centerItems4Viewing(_clouds, p_view_obb, p_view_model, p_view_spheres, view_plane);
     std::cout << "Called centerItems4Viewing for clouds" << std::endl;
     
     std::cout << "Centered all items" << std::endl;
 
     pcl::visualization::PCLVisualizer::Ptr viewer(new pcl::visualization::PCLVisualizer("3D Viewer"));
     viewer->setBackgroundColor(1.0, 1.0, 1.0);
+
+    if(_model != nullptr) {
+        // --- 1. USE THE ASCII FILE ---
+        std::string ply_filename = "/home/docker/tree_landing_eda/data/inputs/DRONE_WITH_PETALS.ply";
+        std::string model_id = "my_model";
+
+        // --- 2. Create a PCL PolygonMesh object ---
+        pcl::PolygonMesh::Ptr model_mesh(new pcl::PolygonMesh);
+
+        // --- 3. Load the file using PCL's native PLY mesh loader ---
+        if (pcl::io::loadPLYFile(ply_filename, *model_mesh) == -1) {
+            std::cerr << "!!! ERROR: FAILED to load PLY as a PolygonMesh from " << ply_filename << std::endl;
+        
+        } else {
+            std::cout << "--- Successfully loaded PLY as a PolygonMesh ---" << std::endl;
+            std::cout << "Mesh has " << model_mesh->cloud.width * model_mesh->cloud.height << " vertices." << std::endl;
+            std::cout << "Mesh has " << model_mesh->polygons.size() << " faces." << std::endl;
+
+            // --- 1. Create Scaling Transform ---
+            Eigen::Affine3f T_scale = Eigen::Affine3f::Identity();
+            // Scale by 0.001 to convert mm (mesh) to meters (clouds)
+            T_scale.scale(1.0); 
+
+            // --- 2. Create Centered Translation Transform ---
+            // Use 'view_model', which holds the CENTERED position
+            Eigen::Affine3f T_model_centered = Eigen::Affine3f::Identity();
+            T_model_centered.translation() << view_model.x, view_model.y, view_model.z;
+
+            // --- 3. Combine them: Scale first, then Translate ---
+            Eigen::Affine3f transform_combined = T_model_centered * T_scale;
+
+            // --- 4. Apply the transform ---
+            pcl::PointCloud<pcl::PointXYZRGB>::Ptr temp_cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
+            pcl::fromPCLPointCloud2(model_mesh->cloud, *temp_cloud);
+            pcl::transformPointCloud(*temp_cloud, *temp_cloud, transform_combined);
+            pcl::toPCLPointCloud2(*temp_cloud, model_mesh->cloud);
+
+            // --- 4. Add the PCL mesh object to the viewer ---
+            if (viewer->addPolygonMesh(*model_mesh, model_id))
+            {           
+                // --- 5. Set properties ONLY if mesh was added successfully ---
+                std::cout << "--- Successfully added mesh to viewer with ID: " << model_id << " ---" << std::endl;
+                // viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 0.5, 0.5, 0.5, model_id);
+                // viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_OPACITY, 0.7, model_id);
+            }
+            else
+            {
+                // --- 5. Failed to add mesh ---
+                std::cerr << "!!! ERROR: FAILED to add PolygonMesh to viewer with ID: " << model_id << std::endl;
+            }
+        }
+    }
 
     int i = 0;
     for (pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud : centered_clouds) {
@@ -2798,21 +2831,22 @@ void view(
         );
         ++i;
     }
-    if(_plane != nullptr){viewer->addPlane(*view_plane, "plane");}
-    if(_spheres != nullptr) {
-        double radius = 0.2;
-        int sphere_id = 0;
-        for(const auto& spheres : view_spheres) {
-            std::string unique_id = "centroid_" + std::to_string(sphere_id);
-            viewer->addSphere(spheres, radius, 0.5, 0.5, 0.5, unique_id);
-            ++sphere_id;
-        }
-    }
     if(_obb != nullptr) {
         viewer->addCube(view_obb.centroid, view_obb.rotation, view_obb.width, view_obb.height, view_obb.depth, "oriented_bbox");
         viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_REPRESENTATION, pcl::visualization::PCL_VISUALIZER_REPRESENTATION_WIREFRAME, "oriented_bbox");
         viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 1.0, 0.0, 0.0, "oriented_bbox"); // Red
     }
+    if(_spheres != nullptr) {
+        double radius = 0.5;
+        double opacity = 0.7;
+        int sphere_id = 0;
+        for(const auto& sphere : view_spheres) {
+            std::string unique_id = "centroid_" + std::to_string(sphere_id);
+            viewer->addSphere(sphere, radius, 0.5, 0.5, 0.5, unique_id);
+            ++sphere_id;
+        }
+    }
+    if(_plane != nullptr){viewer->addPlane(*view_plane, "plane");}
 
     viewer->addCoordinateSystem(1.0);
     // viewer->initCameraParameters();

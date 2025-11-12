@@ -493,6 +493,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr centerCloud(pcl::PointCloud<pcl::PointXYZ
 void view(
     const std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr>& clouds,
     const OrientedBoundingBox* _obb = nullptr,
+    const pcl::PointXYZRGB* _model = nullptr,
     const std::vector<pcl::PointXYZRGB>* _spheres = nullptr,
     const pcl::ModelCoefficients::Ptr _plane = nullptr
 );
