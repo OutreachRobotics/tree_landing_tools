@@ -2953,16 +2953,18 @@ void view(
         viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 1.0, 0.0, 0.0, "oriented_bbox"); // Red
     }
     if(_spheres != nullptr) {
-        double radius = 0.5;
-        double opacity = 0.7;
+        double radius = 0.2;
         int sphere_id = 0;
         for(const auto& sphere : view_spheres) {
             std::string unique_id = "centroid_" + std::to_string(sphere_id);
-            viewer->addSphere(sphere, radius, 0.5, 0.5, 0.5, unique_id);
+            viewer->addSphere(sphere, radius, sphere.r / 255.0, sphere.g / 255.0, sphere.b / 255.0, unique_id);
             ++sphere_id;
         }
     }
-    if(_plane != nullptr){viewer->addPlane(*view_plane, "plane");}
+    if(_plane != nullptr){
+        viewer->addPlane(*view_plane, "plane");
+        viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 0, 0, 0, "plane");
+    }
 
     viewer->addCoordinateSystem(1.0);
     // viewer->initCameraParameters();
