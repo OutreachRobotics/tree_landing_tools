@@ -70,9 +70,9 @@ struct BoundingBox {
 struct OrientedBoundingBox {
     Eigen::Vector3f centroid;
     Eigen::Quaternionf rotation;
-    float width;  // Corresponds to the x-dimension of the box
-    float height; // Corresponds to the y-dimension of the box
-    float depth;  // Corresponds to the z-dimension of the box
+    float width = 0.0;  // Corresponds to the x-dimension of the box
+    float height = 0.0; // Corresponds to the y-dimension of the box
+    float depth = 0.0;  // Corresponds to the z-dimension of the box
 };
 
 struct DepthMapData {
@@ -84,34 +84,34 @@ struct DepthMapData {
 };
 
 struct DistsOfInterest {
-    float distTop;
-    float distBbox2D;
-    float ratioBbox2D;
-    float distMinBoundary2D;
-    float ratioMinBoundary2D;
+    float distTop = 0.0;
+    float distBbox2D = 0.0;
+    float ratioBbox2D = 0.0;
+    float distMinBoundary2D = 0.0;
+    float ratioMinBoundary2D = 0.0;
 
-    float distTreeCenter2D;
-    float distTreeCenter3D;
-    float ratioTreeCenter2D;
-    float ratioTreeCenter3D;
+    float distTreeCenter2D = 0.0;
+    float distTreeCenter3D = 0.0;
+    float ratioTreeCenter2D = 0.0;
+    float ratioTreeCenter3D = 0.0;
 
-    float distTreeHighestPoint2D;
-    float distTreeHighestPoint3D;
-    float ratioTreeHighestPoint2D;
-    float ratioTreeHighestPoint3D;
+    float distTreeHighestPoint2D = 0.0;
+    float distTreeHighestPoint3D = 0.0;
+    float ratioTreeHighestPoint2D = 0.0;
+    float ratioTreeHighestPoint3D = 0.0;
 
-    float distTreeMidwayPoint2D;
-    float distTreeMidwayPoint3D;
-    float ratioTreeMidwayPoint2D;
-    float ratioTreeMidwayPoint3D;
+    float distTreeMidwayPoint2D = 0.0;
+    float distTreeMidwayPoint3D = 0.0;
+    float ratioTreeMidwayPoint2D = 0.0;
+    float ratioTreeMidwayPoint3D = 0.0;
 };
 
 struct Features {
     pcl::PrincipalCurvatures curvatures;
     pcl_tools::OrientedBoundingBox treeBB;
-    float density;
-    float slope;
-    float stdDev;
+    float density = 0.0;
+    float slope = 0.0;
+    float stdDev = 0.0;
     DistsOfInterest distsOfInterest;
     pcl::ModelCoefficients::Ptr plane;
 };
