@@ -2950,7 +2950,7 @@ void view(
     if(_obb != nullptr) {
         viewer->addCube(view_obb.centroid, view_obb.rotation, view_obb.width, view_obb.height, view_obb.depth, "oriented_bbox");
         viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_REPRESENTATION, pcl::visualization::PCL_VISUALIZER_REPRESENTATION_WIREFRAME, "oriented_bbox");
-        viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 0.0, 0.0, 0.0, "oriented_bbox"); // Black
+        viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 0.0, 1.0, 0.0, "oriented_bbox"); // Black
     }
     if(_spheres != nullptr) {
         double radius = 0.2;
