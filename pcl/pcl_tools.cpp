@@ -2818,9 +2818,24 @@ std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> centerItems4Viewing(
     if(_plane != nullptr && !_plane->values.empty()) {
         Eigen::Vector4f input_plane_coeffs(_plane->values.data());
         Eigen::Vector4f transformed_plane_coeffs;
+        
+        // A) Apply standard geometric rotation/translation
         pcl::transformPlane(input_plane_coeffs, transformed_plane_coeffs, transform);
+
+        // B) FORCE the plane to pass through the model point (if model exists)
+        // Plane Equation: ax + by + cz + d = 0  =>  d = -(ax + by + cz)
+        if(_model != nullptr) {
+            float a = transformed_plane_coeffs[0];
+            float b = transformed_plane_coeffs[1];
+            float c = transformed_plane_coeffs[2];
+            
+            // Recalculate 'd' using the model's new coordinates
+            float new_d = -(a * _model->x + b * _model->y + c * _model->z);
+            transformed_plane_coeffs[3] = new_d;
+        }
+
         Eigen::Map<Eigen::Vector4f>(_plane->values.data()) = transformed_plane_coeffs;
-        std::cout << "Centered plane" << std::endl;
+        std::cout << "Centered plane on model" << std::endl;
     }
 
     return centered_clouds;
@@ -2963,7 +2978,7 @@ void view(
     }
     if(_plane != nullptr){
         viewer->addPlane(*view_plane, "plane");
-        viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 0, 0, 0, "plane");
+        viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 0.0, 0.0, 1.0, "plane");
     }
 
     viewer->addCoordinateSystem(1.0);
